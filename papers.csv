@@ -1,0 +1,4 @@
+id,title,authors,year,abstract,pdf_path
+1,"Deep Learning for NLP","Smith, J.",2022,"This paper explores deep learning techniques for natural language processing.","papers/deep_learning_nlp.pdf"
+2,"Advances in AI Research","Lee, A.; Chen, B.",2021,"A review of recent progress in artificial intelligence research.","papers/advances_ai.pdf"
+3,"Quantum Computing Basics","Kumar, S.",2020,"Introduction to the principles of quantum computing and algorithms.","papers/quantum_computing.pdf"

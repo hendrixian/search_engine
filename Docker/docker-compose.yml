@@ -1,0 +1,45 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    networks:
+      - docker_academic-net
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - docker_academic-net
+
+  searchapp:
+    build: .
+    container_name: academic-search-app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - elasticsearch
+      - minio
+    volumes:
+      - D:/coding/python/demos/search:/app
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true
+    networks:
+      - docker_academic-net
+
+volumes:
+  minio-data:
+
+networks:
+  docker_academic-net:
+    driver: bridge

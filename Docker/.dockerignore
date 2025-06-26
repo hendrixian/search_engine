@@ -1,0 +1,27 @@
+# Ignore Python cache files
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environment folders
+venv/
+.env/
+.envrc
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Ignore data files (if you prefer not to copy large datasets into the container)
+data/
+papers/
+
+# Ignore git files
+.git
+.gitignore
+
+# Ignore Dockerfile and docker-compose (optional, if you don’t want to copy them inside)
+Dockerfile
+docker-compose.yml
