@@ -1,0 +1,70 @@
+# Academic Paper Search Engine
+
+This project is a simple academic paper search engine built with Streamlit, Elasticsearch, Pandas, and PySpark. It allows you to preprocess academic paper data, index it into Elasticsearch, and search through the papers using a web interface.
+
+## Features
+
+- **Preprocessing:** Cleans and prepares paper abstracts using PySpark.
+- **Indexing:** Loads preprocessed data into an Elasticsearch index.
+- **Search UI:** Streamlit app for searching and displaying academic papers.
+
+## Project Structure
+
+```
+.
+├── app.py           # Streamlit web app for searching papers
+├── index.py         # Indexes papers into Elasticsearch
+├── preprocess.py    # Preprocesses paper data with PySpark
+├── papers.csv       # CSV file with academic paper data
+├── requirements.txt # Python dependencies
+```
+
+## Setup Instructions
+
+### 1. Open Docker Desktop
+
+Make sure **Docker Desktop** is running before continuing.
+
+
+### 2. Start All Services
+
+Open a terminal in **VS Code**, navigate to your project directory, and run:
+
+```sh
+docker compose -f Docker\docker-compose.yml up --build
+```
+
+### 3. Preprocess Data
+
+ Open second terminal
+```sh
+docker exec -it academic-search-app /bin/bash
+python preprocess.py
+```
+This will clean the abstracts and output a DataFrame for indexing.
+
+### 4. Index Academic Papers
+
+```sh
+python index.py
+```
+
+This script reads the (preprocessed) CSV and indexes each paper into Elasticsearch.
+
+### 5. Use the Search Engine
+
+On the Streamlit webpage, enter any word or keyword from the papers.csv file into the search bar to explore academic papers.
+
+
+## Notes
+
+- Make sure `papers.csv` is present in the project directory.
+- Adjust Elasticsearch host/port in the code if needed.
+- PySpark may require Java to be installed on your system.
+
+## Requirements
+
+See `requirements.txt` for all Python dependencies.
+
+---
+
