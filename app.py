@@ -35,6 +35,9 @@ if query:
                 <strong>Year:</strong> {source['year']}
             </p>
             <p style="font-size: 1em; color: #333;">{source['abstract']}</p>
+            <a href="{source['pdf_path']}" target="_blank" style="text-decoration:none;">
+                📄<strong>View PDF</strong>
+            </a>
         </div>
         """
         st.markdown(html_content, unsafe_allow_html=True)
