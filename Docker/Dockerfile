@@ -18,11 +18,16 @@ RUN pip install --upgrade pip && \
     pip install elasticsearch==8.13.0
 
 
+
+
 # Copy only requirements for caching
 COPY requirements.txt .
 
 # Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Download nltk data at build time for efficiency
+RUN python -m nltk.downloader punkt
 
 # Copy rest of the app code
 COPY . .
