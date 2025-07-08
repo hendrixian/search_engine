@@ -4,9 +4,12 @@ import tempfile
 import json
 import nltk
 import os
-
-nltk.download('punkt')
 from nltk.tokenize import sent_tokenize
+
+import re
+
+nltk.download('punkt', download_dir='/usr/share/nltk_data')  # download to known location
+nltk.data.path.append('/usr/share/nltk_data')  # tell NLTK to look here
 
 # === Configuration ===
 MINIO_URL = "minio:9000"
@@ -38,7 +41,7 @@ with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp_file:
     full_text = "\n".join([page.get_text() for page in doc])
 
 # === Split text into passages ===
-sentences = sent_tokenize(full_text)
+sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
 chunk_size = 3
 passages = []
 
