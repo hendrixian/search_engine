@@ -4,12 +4,10 @@ import tempfile
 import json
 import nltk
 import os
-from nltk.tokenize import sent_tokenize
-
 import re
 
-nltk.download('punkt', download_dir='/usr/share/nltk_data')  # download to known location
-nltk.data.path.append('/usr/share/nltk_data')  # tell NLTK to look here
+nltk.download('punkt', download_dir='/usr/share/nltk_data')
+nltk.data.path.append('/usr/share/nltk_data')
 
 # === Configuration ===
 MINIO_URL = "minio:9000"
@@ -25,43 +23,54 @@ client = Minio(MINIO_URL, access_key=ACCESS_KEY, secret_key=SECRET_KEY, secure=F
 if not client.bucket_exists(DEST_BUCKET):
     client.make_bucket(DEST_BUCKET)
 
-# === Example: Process 1 PDF ===
-pdf_filename = "C++ object orianted programming.pdf"  # replace with your actual file name in MinIO
+# === Process all PDFs in SOURCE_BUCKET ===
+objects = client.list_objects(SOURCE_BUCKET)
 
-# Download PDF to temp file
-obj = client.get_object(SOURCE_BUCKET, pdf_filename)
+for obj in objects:
+    if not obj.object_name.endswith(".pdf"):
+        continue
 
-with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp_file:
-    for chunk in obj.stream(32 * 1024):
-        tmp_file.write(chunk)
-    tmp_file.flush()
+    pdf_filename = obj.object_name
+    print(f"📄 Processing: {pdf_filename}")
 
-    # Extract text from PDF
-    doc = fitz.open(tmp_file.name)
-    full_text = "\n".join([page.get_text() for page in doc])
+    # Download PDF
+    obj_data = client.get_object(SOURCE_BUCKET, pdf_filename)
+    with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp_file:
+        for chunk in obj_data.stream(32 * 1024):
+            tmp_file.write(chunk)
+        tmp_file.flush()
 
-# === Split text into passages ===
-sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
-chunk_size = 3
-passages = []
+        # Extract text from PDF
+        doc = fitz.open(tmp_file.name)
+        full_text = "\n".join([page.get_text() for page in doc])
 
-for i in range(0, len(sentences), chunk_size):
-    chunk = " ".join(sentences[i:i + chunk_size])
-    if chunk.strip():  # skip empty chunks
-        passages.append({
-            "paper": pdf_filename,
-            "passage_id": f"{pdf_filename.replace('.pdf','')}_{i//chunk_size:04}",
-            "text": chunk.strip()
-        })
+        # Clean up text
+        full_text = re.sub(r'-\s*\n\s*', '', full_text)  # fix hyphenated line-breaks
+        full_text = re.sub(r'\n+', '\n\n', full_text)    # normalize to paragraph spacing
 
-# === Save to JSON ===
-json_filename = pdf_filename.replace(".pdf", ".json")
-with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as json_file:
-    json.dump(passages, json_file, indent=2)
-    json_file_path = json_file.name
+    # === Split into passages by paragraph ===
+    paragraphs = full_text.split("\n\n")
+    passages = []
 
-# === Upload JSON to MinIO ===
-client.fput_object(DEST_BUCKET, json_filename, json_file_path)
+    for i, para in enumerate(paragraphs):
+        clean_para = para.strip()
+        if len(clean_para.split()) >= 20:  # ignore very short chunks
+            passages.append({
+                "paper": pdf_filename,
+                "passage_id": f"{pdf_filename.replace('.pdf','')}_{i:04}",
+                "text": clean_para
+            })
 
-print(f"✅ Extracted and saved {len(passages)} passages from {pdf_filename}")
-os.remove(json_file_path)  # optional: clean up
+    # === Save and upload JSON ===
+    if passages:
+        json_filename = pdf_filename.replace(".pdf", ".json")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as json_file:
+            json.dump(passages, json_file, indent=2)
+            json_file_path = json_file.name
+
+        client.fput_object(DEST_BUCKET, json_filename, json_file_path)
+        os.remove(json_file_path)
+
+        print(f"✅ Saved {len(passages)} passages for {pdf_filename}")
+    else:
+        print(f"⚠️ No usable text found in {pdf_filename}")
