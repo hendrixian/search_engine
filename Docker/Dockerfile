@@ -1,4 +1,4 @@
-FROM bitnami/python:3.11
+FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
@@ -14,11 +14,12 @@ ENV PYTHONUTF8=1
 
 # Pre-install heavy dependency separately to cache it better
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir pyspark==4.0.0 && \
-    pip install elasticsearch==8.13.0
-
-
-
+    pip install --no-cache-dir \
+    torch==2.2.2+cpu -f https://download.pytorch.org/whl/torch_stable.html \
+    transformers==4.53.1 \
+    sentence-transformers==5.0.0 \
+    elasticsearch==8.13.0 \
+    pyspark==4.0.0
 
 # Copy only requirements for caching
 COPY requirements.txt .

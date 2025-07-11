@@ -1,0 +1,12 @@
+streamlit==1.46.0
+elasticsearch==8.13.0
+pandas==2.3.0
+pyspark==4.0.0
+minio==7.2.15
+nltk==3.9.1
+PyMuPDF==1.26.3
+transformers==4.53.1
+sentence-transformers==5.0.0
+
+torch==2.2.2+cpu -f https://download.pytorch.org/whl/torch_stable.html
+

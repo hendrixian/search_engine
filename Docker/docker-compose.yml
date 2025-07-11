@@ -24,7 +24,9 @@ services:
       - docker_academic-net
 
   searchapp:
-    build: .
+    build: 
+      context: ..
+      dockerfile: Docker/Dockerfile
     container_name: academic-search-app
     ports:
       - "8501:8501"
@@ -33,9 +35,11 @@ services:
       - minio
     volumes:
       - D:/coding/python/demos/search:/app
+      - ./model_cache:/root/.cache/huggingface
     command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true
     networks:
       - docker_academic-net
+    
 
 volumes:
   minio-data:

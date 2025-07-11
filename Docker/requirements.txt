@@ -1,7 +1,0 @@
-streamlit==1.46.0
-elasticsearch==8.13.0
-pandas==2.3.0
-pyspark==4.0.0
-minio==7.2.15
-nltk==3.9.1
-PyMuPDF==1.26.3

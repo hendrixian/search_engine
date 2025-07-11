@@ -14,14 +14,22 @@ venv/
 *.tmp
 *.swp
 
+models/
+
 # Ignore data files (if you prefer not to copy large datasets into the container)
 data/
 papers/
+passages/
 
 # Ignore git files
 .git
 .gitignore
 
-# Ignore Dockerfile and docker-compose (optional, if you don’t want to copy them inside)
-Dockerfile
-docker-compose.yml
+
+
+.cache/
+.huggingface/
+models/
+
+*.bak
+*.old
