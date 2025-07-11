@@ -15,6 +15,7 @@ venv/
 *.swp
 
 models/
+Docker/model_cache/
 
 # Ignore data files (if you prefer not to copy large datasets into the container)
 data/
