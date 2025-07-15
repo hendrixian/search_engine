@@ -4,8 +4,11 @@ from minio import Minio
 import json
 import tempfile
 from sentence_transformers import SentenceTransformer, util
-from transformers import pipeline
+from transformers import pipeline, AutoTokenizer
 import os
+import io
+import torch 
+from minstral import ask_minstral   
 
 # === Model cache directories inside Docker container ===
 MODEL_CACHE_DIR = "/app/models"
@@ -16,7 +19,7 @@ os.environ["SENTENCE_TRANSFORMERS_HOME"] = MODEL_CACHE_DIR
 @st.cache_resource
 def load_models():
     embedder = SentenceTransformer("all-MiniLM-L6-v2")
-    qa_pipeline = pipeline("question-answering", model="distilbert-base-uncased-distilled-squad")
+    qa_pipeline = pipeline("question-answering", model="deepset/roberta-base-squad2")  # <-- improved model
     return embedder, qa_pipeline
 
 embedder, qa_pipeline = load_models()
@@ -64,13 +67,14 @@ if query:
         for obj in objects:
             if obj.object_name.endswith(".json"):
                 resp = minio_client.get_object("passages", obj.object_name)
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp_file:
-                    for chunk in resp.stream(32 * 1024):
-                        tmp_file.write(chunk)
-                    tmp_file.flush()
-                    with open(tmp_file.name, "r") as f:
-                        data = json.load(f)
-                        passages.extend(data)
+
+                buffer = io.BytesIO()
+                for chunk in resp.stream(32 * 1024):
+                    buffer.write(chunk)
+                buffer.seek(0)
+
+                data = json.load(buffer)
+                passages.extend(data)
     except Exception as e:
         st.error(f"Error accessing passages from MinIO: {e}")
         st.stop()
@@ -78,18 +82,36 @@ if query:
     if not passages:
         st.warning("No passage data available for QA.")
     else:
-        texts = [p["text"] for p in passages]
+        texts = [p["text"].replace("\n", " ").strip() for p in passages]
         passage_embeddings = embedder.encode(texts, convert_to_tensor=True)
         query_embedding = embedder.encode(query, convert_to_tensor=True)
 
         scores = util.cos_sim(query_embedding, passage_embeddings)[0]
-        best_idx = scores.argmax().item()
-        best_passage = texts[best_idx]
 
-        result = qa_pipeline(question=query, context=best_passage)
+        # 🔥 Use top-k passages instead of just best one
+        top_k = 3
+        top_indices = torch.topk(scores, k=top_k).indices.tolist()
+
+        tokenizer = AutoTokenizer.from_pretrained("deepset/roberta-base-squad2")
+        max_tokens = 500
+        context = ""
+        included_passages = []
+
+        for i in top_indices:
+            next_passage = texts[i]
+            tentative_context = context + "\n\n" + next_passage if context else next_passage
+            if len(tokenizer(tentative_context)["input_ids"]) <= max_tokens:
+                context = tentative_context
+                included_passages.append(next_passage)
+            else:
+                break
+
+        # Run QA
+        result = qa_pipeline(question=query, context=context)
 
         st.markdown("### ✅ Answer")
         st.write(result["answer"])
 
-        st.markdown("### 📄 Source Passage")
-        st.write(best_passage)
+        st.markdown("### 📄 Source Passages")
+        for i in top_indices:
+            st.write(texts[i])
