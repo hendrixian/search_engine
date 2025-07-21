@@ -8,7 +8,7 @@ from transformers import pipeline, AutoTokenizer
 import os
 import io
 import torch 
-from minstral import ask_minstral   
+from minstral import call_mistral
 
 # === Model cache directories inside Docker container ===
 MODEL_CACHE_DIR = "/app/models"
@@ -92,26 +92,27 @@ if query:
         top_k = 3
         top_indices = torch.topk(scores, k=top_k).indices.tolist()
 
-        tokenizer = AutoTokenizer.from_pretrained("deepset/roberta-base-squad2")
-        max_tokens = 500
+        # Combine top-k relevant paragraphs into a context window (token-limited)
+        tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+        max_tokens = 600
         context = ""
-        included_passages = []
+        included = []
 
         for i in top_indices:
-            next_passage = texts[i]
-            tentative_context = context + "\n\n" + next_passage if context else next_passage
-            if len(tokenizer(tentative_context)["input_ids"]) <= max_tokens:
-                context = tentative_context
-                included_passages.append(next_passage)
+            chunk = texts[i]
+            temp = context + "\n\n" + chunk if context else chunk
+            if len(tokenizer(temp)["input_ids"]) <= max_tokens:
+                context = temp
+                included.append(chunk)
             else:
                 break
 
-        # Run QA
-        result = qa_pipeline(question=query, context=context)
+        # Call Mistral for a paraphrased, fluent answer
+        answer = call_mistral(query, context)
 
         st.markdown("### ✅ Answer")
-        st.write(result["answer"])
+        st.write(answer)
 
         st.markdown("### 📄 Source Passages")
-        for i in top_indices:
-            st.write(texts[i])
+        for passage in included:
+            st.write(passage)

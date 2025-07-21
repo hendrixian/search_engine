@@ -23,7 +23,7 @@ services:
     networks:
       - docker_academic-net
 
-  searchapp:
+  searchapp:  # ✅ this must be at the same level as minio
     build: 
       context: ..
       dockerfile: Docker/Dockerfile
@@ -36,10 +36,11 @@ services:
     volumes:
       - D:/coding/python/demos/search:/app
       - ./model_cache:/root/.cache/huggingface
+    env_file:
+      - .env
     command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true
     networks:
       - docker_academic-net
-    
 
 volumes:
   minio-data:
