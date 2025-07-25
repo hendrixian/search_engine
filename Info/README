@@ -4,8 +4,10 @@ This project is a simple academic paper search engine built with Streamlit, Elas
 
 ## Features
 
+- **Automatic PDF Processing:** Extracts paragraphs and passages from academic PDFs.
 - **Preprocessing:** Cleans and prepares paper abstracts using PySpark.
 - **Indexing:** Loads preprocessed data into an Elasticsearch index.
+- **MinIO Integration:** Stores PDFs and extracted passages.
 - **Search UI:** Streamlit app for searching and displaying academic papers.
 
 ## Project Structure
@@ -16,6 +18,7 @@ This project is a simple academic paper search engine built with Streamlit, Elas
 ├── index.py         # Indexes papers into Elasticsearch
 ├── preprocess.py    # Preprocesses paper data with PySpark
 ├── papers.csv       # CSV file with academic paper data
+├── process_passages.py     # CSV file with academic paper data
 ├── requirements.txt # Python dependencies
 ```
 
@@ -33,34 +36,63 @@ Open a terminal in **VS Code**, navigate to your project directory, and run:
 ```sh
 docker compose -f Docker\docker-compose.yml up --build
 ```
+This will start all necessary services including MinIO, Elasticsearch, and your Streamlit app. Wait until everything is fully built and running.
 
-### 3. Preprocess Data
+
+### 3. Upload PDFs to MinIO
+
+Open your browser and go to the MinIO Console (usually at http://localhost:9001)
+Log in using the default credentials:
+
+    Username: minioadmin
+
+    Password: minioadmin
+
+Create a bucket named papers if it doesn't already exist.
+Upload your academic PDF files to the papers bucket.
+
+
+### 4. Preprocess Data
+
+In a PowerShell or Command Prompt window (same directory as mc.exe), run:
+```sh
+.\mc.exe alias set local http://localhost:9000 minioadmin minioadmin
+.\mc.exe anonymous set download local/papers
+```
+This sets up the alias for your local MinIO instance and makes the papers bucket publicly readable so the app can access PDFs directly.
+
+### 5. Preprocess Data
 
  Open second terminal
 ```sh
 docker exec -it academic-search-app /bin/bash
-python preprocess.py
 ```
-This will clean the abstracts and output a DataFrame for indexing.
-
-### 4. Index Academic Papers
-
+Inside the container, run the following scripts one by one:
 ```sh
+python preprocess.py
+python process_passages.py
 python index.py
 ```
+preprocess.py: cleans raw text (e.g. abstracts).
+process_passages.py: extracts and stores text passages from PDFs.
+index.py: indexes metadata and file info into Elasticsearch.
 
-This script reads the (preprocessed) CSV and indexes each paper into Elasticsearch.
 
-### 5. Use the Search Engine
+### 6. Use the Search Engine
 
-On the Streamlit webpage, enter any word or keyword from the papers.csv file into the search bar to explore academic papers.
+Once all scripts have completed:
+
+    Go to the Streamlit web interface (URL shown in your terminal, usually http://localhost:8501)
+    Use the search bar to explore academic papers by entering keywords in metadata and ask any related questions
 
 
 ## Notes
 
 - Make sure `papers.csv` is present in the project directory.
-- Adjust Elasticsearch host/port in the code if needed.
 - PySpark may require Java to be installed on your system.
+- Make sure MinIO and Elasticsearch are fully running before indexing.
+- Adjust Elasticsearch host/port in the code if needed.
+- You can monitor logs from each container using the Docker Desktop GUI.
 
 ## Requirements
 
