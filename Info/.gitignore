@@ -61,6 +61,8 @@ venv.bak/
 # VS Code settings
 .vscode/
 
+.env
+
 # Docker
 *.log
 docker-compose.override.yml

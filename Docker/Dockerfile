@@ -1,5 +1,9 @@
 FROM python:3.11-slim
 
+# Force apt to use IPv4 (to avoid connection issues with IPv6)
+ENV APT_CONFIG=/etc/apt/apt.conf.d/99force-ipv4
+RUN echo 'Acquire::ForceIPv4 "true";' > $APT_CONFIG
+
 # Set working directory
 WORKDIR /app
 

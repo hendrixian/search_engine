@@ -1,4 +1,4 @@
 id,title,authors,year,abstract,pdf_path
 1,"OOP in C++","Robert, L.",2020,"Object oriented c plus plus","papers/C++ object orianted programming.pdf"
 2,"Advance Engineering Mathematics","Erwin, K.",2020,"Big stuff about math","papers/Advanced engineering mathematics.pdf"
-3,"Introduction to Artificial Intelligence","Wolfgang, E.",2020,"Introduction to the concept of artificial intelligence.","papers/Introduction to Artificial Intelligence-Springer (2018).pdf"
+3,"Introduction to Artificial Intelligence","Wolfgang, E.",2020,"Introduction to the concept of artificial intelligence(AI).","papers/Introduction to Artificial Intelligence-Springer (2018).pdf"

@@ -27,7 +27,7 @@ papers = pd.read_csv("papers.csv")
 for _, row in papers.iterrows():
     filename = os.path.basename(row["pdf_path"])
     safe_filename = urllib.parse.quote(filename)
-    minio_url = f"http://localhost:9000/{bucket_name}/{safe_filename}"
+    minio_url = f"http://minio:9000/{bucket_name}/{safe_filename}"
     doc = {
         "title": row["title"],
         "authors": row["authors"],

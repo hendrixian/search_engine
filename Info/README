@@ -14,6 +14,10 @@ This project is a simple academic paper search engine built with Streamlit, Elas
 
 ```
 .
+├── Docker   
+    ├── .env
+    ├── docker-compose.yml
+    ├── Dockerfile        
 ├── app.py           # Streamlit web app for searching papers
 ├── index.py         # Indexes papers into Elasticsearch
 ├── preprocess.py    # Preprocesses paper data with PySpark

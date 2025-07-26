@@ -25,7 +25,7 @@ services:
 
   searchapp:  # ✅ this must be at the same level as minio
     build: 
-      context: ..
+      context: ../
       dockerfile: Docker/Dockerfile
     container_name: academic-search-app
     ports:
@@ -34,7 +34,7 @@ services:
       - elasticsearch
       - minio
     volumes:
-      - D:/coding/python/demos/search:/app
+      - ./:/app
       - ./model_cache:/root/.cache/huggingface
     env_file:
       - .env
