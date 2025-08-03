@@ -11,3 +11,7 @@ sentence-transformers==5.0.0
 numpy==1.26.4
 torch==2.2.2+cpu 
 -f https://download.pytorch.org/whl/torch_stable.html
+requests
+beautifulsoup4
+lxml
+urllib3

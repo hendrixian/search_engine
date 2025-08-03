@@ -6,7 +6,6 @@ __pycache__
 
 # Ignore virtual environment folders
 venv/
-.env/
 .envrc
 
 # Ignore logs and temporary files
@@ -14,10 +13,13 @@ venv/
 *.tmp
 *.swp
 
+# Ignore model and cache directories
 models/
 Docker/model_cache/
+.cache/
+.huggingface/
 
-# Ignore data files (if you prefer not to copy large datasets into the container)
+# Ignore data directories (if not needed in container)
 data/
 papers/
 passages/
@@ -26,11 +28,9 @@ passages/
 .git
 .gitignore
 
-
-
-.cache/
-.huggingface/
-models/
-
+# Ignore backups
 *.bak
 *.old
+
+# Ignore MinIO client
+mc.exe

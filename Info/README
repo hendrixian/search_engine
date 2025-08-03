@@ -1,6 +1,6 @@
 # Academic Paper Search Engine
 
-This project is a simple academic paper search engine built with Streamlit, Elasticsearch, Pandas, and PySpark. It allows you to preprocess academic paper data, index it into Elasticsearch, and search through the papers using a web interface.
+This project is a full-stack academic paper and web content search engine built with Streamlit, Elasticsearch, MinIO, and PySpark. It allows you to preprocess and index academic papers, crawl technical web sources (e.g. GeeksforGeeks, MathWorld), and generate AI-powered answers using integrated LLMs.
 
 ## Features
 
@@ -9,6 +9,7 @@ This project is a simple academic paper search engine built with Streamlit, Elas
 - **Indexing:** Loads preprocessed data into an Elasticsearch index.
 - **MinIO Integration:** Stores PDFs and extracted passages.
 - **Search UI:** Streamlit app for searching and displaying academic papers.
+- **Web Crawling:** Fetches articles from websites using custom crawlers.
 
 ## Project Structure
 
@@ -17,7 +18,14 @@ This project is a simple academic paper search engine built with Streamlit, Elas
 ├── Docker   
     ├── .env
     ├── docker-compose.yml
-    ├── Dockerfile        
+    ├── Dockerfile 
+├── crawlers   
+    ├── base_engine.py
+    ├── crawl.py
+    ├── engineering.py        
+    ├── geeksforgeeks.py        
+    ├── mathworld.py        
+    ├── multi_crawler.py        
 ├── app.py           # Streamlit web app for searching papers
 ├── index.py         # Indexes papers into Elasticsearch
 ├── preprocess.py    # Preprocesses paper data with PySpark
@@ -46,13 +54,11 @@ This will start all necessary services including MinIO, Elasticsearch, and your 
 ### 3. Upload PDFs to MinIO
 
 Open your browser and go to the MinIO Console (usually at http://localhost:9001)
-Log in using the default credentials:
 
-    Username: minioadmin
-
-    Password: minioadmin
+Log in using the default credentials
 
 Create a bucket named papers if it doesn't already exist.
+
 Upload your academic PDF files to the papers bucket.
 
 
