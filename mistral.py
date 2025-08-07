@@ -1,8 +1,16 @@
 import httpx
 import os
+from tenacity import retry, wait_random_exponential, stop_after_attempt
+
 
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")  # Set this in your environment
 MISTRAL_MODEL = "mistral-small"  # Change to "mistral-medium" or "mistral-large" if you have access
+
+if not MISTRAL_API_KEY:
+    raise ValueError("MISTRAL_API_KEY environment variable not set")
+
+@retry(wait=wait_random_exponential(multiplier=1, min=4, max=10), 
+      stop=stop_after_attempt(3))
 
 def call_mistral(question, context):
     system_prompt = (
