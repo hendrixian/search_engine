@@ -15,7 +15,23 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 import html
 import re
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
+# Load environment variables
+ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "http://localhost:9200")
+
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ROOT_USER = os.getenv("MINIO_ROOT_USER", "minioadmin")
+MINIO_ROOT_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+
+token = os.getenv("HUGGINGFACE_TOKEN")
+
+if not token:
+    st.error("HuggingFace token not configured")
+    st.stop()
 
 # === Model cache directories inside Docker container ===
 MODEL_CACHE_DIR = "/app/models"
@@ -87,10 +103,10 @@ embedder, qa_pipeline = load_models()
 web_crawler = load_crawler()
 
 # === Connect to Elasticsearch ===
-es = Elasticsearch("http://elasticsearch:9200")
+es = Elasticsearch(ELASTICSEARCH_HOST)
 
 # === Connect to MinIO ===
-minio_client = Minio("minio:9000", access_key="minioadmin", secret_key="minioadmin", secure=False)
+minio_client = Minio(MINIO_ENDPOINT, access_key=MINIO_ROOT_USER, secret_key=MINIO_ROOT_PASSWORD, secure=False)
 
 st.title("🔎 Comprehensive Academic & Web Search")
 st.markdown("*Automatically search academic papers, generate AI answers, and discover web content - all in one place*")
@@ -336,7 +352,7 @@ if query:
                 top_indices = torch.topk(scores, k=min(top_k, len(all_texts))).indices.tolist()
                 
                 # Build comprehensive context
-                tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+                tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf",token=token)                
                 max_tokens = 1500
                 context = ""
                 included_sources = []
@@ -346,7 +362,7 @@ if query:
                     source_info = text_sources[i]
                     temp = context + "\n\n" + chunk if context else chunk
                     
-                    if len(tokenizer(temp)["input_ids"]) <= max_tokens:
+                    if len(tokenizer.encode(temp)) <= max_tokens:
                         context = temp
                         included_sources.append({
                             'text': chunk,
@@ -356,7 +372,8 @@ if query:
                     else:
                         break
                 embedding_time = time.time() - embedding_start
-                
+                st.write(f"✅ Context tokens so far: {len(tokenizer.encode(context))}")
+
                 # Generate comprehensive answer
                 mistral_start = time.time()
                 answer = call_mistral(query, context)

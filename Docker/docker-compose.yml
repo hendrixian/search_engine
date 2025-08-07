@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
@@ -23,7 +25,7 @@ services:
     networks:
       - docker_academic-net
 
-  searchapp:  # ✅ this must be at the same level as minio
+  searchapp:
     build: 
       context: ../
       dockerfile: Docker/Dockerfile
@@ -40,6 +42,31 @@ services:
     command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true
     networks:
       - docker_academic-net
+
+  academic-search-monitor:
+    build: 
+      context: ../
+      dockerfile: Docker/Dockerfile
+    container_name: academic-search-monitor
+    ports:
+      - "8502:8502"
+    environment:
+      - ELASTICSEARCH_HOST=${ELASTICSEARCH_HOST}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_SECURE=false
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - STREAMLIT_SERVER_PORT=8502
+    volumes:
+      - ./model_cache:/root/.cache/huggingface
+    depends_on:
+      - elasticsearch
+      - minio
+    command: streamlit run monitor/dashboard.py
+    networks:
+      - docker_academic-net
+    restart: unless-stopped
 
 volumes:
   minio-data:
