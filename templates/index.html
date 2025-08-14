@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Academic Search Engine</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f8f9fa;
+      }
+      .container {
+        max-width: 1000px;
+        margin: 0 auto;
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        text-align: center;
+        color: #1a73e8;
+        margin-bottom: 30px;
+      }
+      .search-container {
+        display: flex;
+        position: relative;
+        margin-bottom: 20px;
+      }
+      .search-input {
+        width: 100%;
+        padding: 15px 20px;
+        font-size: 16px;
+        border: 2px solid #dfe1e5;
+        border-radius: 24px;
+        outline: none;
+        transition: all 0.3s ease;
+      }
+      .search-input:focus {
+        border-color: #1a73e8;
+        box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+      }
+      .suggestions {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #dfe1e5;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        max-height: 300px;
+        overflow-y: auto;
+        display: none;
+      }
+      .suggestion-item {
+        padding: 12px 20px;
+        cursor: pointer;
+        border-bottom: 1px solid #f1f3f4;
+        transition: background-color 0.2s ease;
+      }
+      .suggestion-item:hover {
+        background-color: #f8f9fa;
+      }
+      .suggestion-item:last-child {
+        border-bottom: none;
+      }
+      .search-button {
+        width: 100%;
+        padding: 15px;
+        background: linear-gradient(135deg, #1a73e8 0%, #34a853 100%);
+        color: white;
+        border: none;
+        border-radius: 24px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+      .search-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(26, 115, 232, 0.3);
+      }
+      .status {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: #e8f5e8;
+        border-radius: 8px;
+        border-left: 4px solid #34a853;
+      }
+
+      /* Tab Styles */
+      .tabs {
+        display: flex;
+        border-bottom: 2px solid #e0e0e0;
+        margin: 30px 0 20px 0;
+      }
+      .tab {
+        padding: 15px 25px;
+        background: #f8f9fa;
+        border: none;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 500;
+        color: #666;
+        transition: all 0.3s ease;
+        border-radius: 8px 8px 0 0;
+        margin-right: 5px;
+      }
+      .tab.active {
+        background: #1a73e8;
+        color: white;
+      }
+      .tab:hover {
+        background: #e3f2fd;
+        color: #1a73e8;
+      }
+      .tab.active:hover {
+        background: #1a73e8;
+        color: white;
+      }
+
+      .tab-content {
+        display: none;
+        padding: 20px 0;
+      }
+      .tab-content.active {
+        display: block;
+      }
+
+      .results {
+        margin-top: 20px;
+      }
+      .result-item {
+        padding: 20px;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        background: white;
+        transition: all 0.3s ease;
+      }
+      .result-item:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
+      }
+      .result-title {
+        color: #1a0dab;
+        font-size: 18px;
+        margin-bottom: 10px;
+        font-weight: 600;
+      }
+      .result-snippet {
+        color: #545454;
+        line-height: 1.5;
+        margin-bottom: 10px;
+      }
+      .result-source {
+        display: inline-block;
+        background: #e3f2fd;
+        color: #1a73e8;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-bottom: 10px;
+      }
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+        font-size: 18px;
+      }
+      .stats {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        text-align: center;
+      }
+      .stats strong {
+        color: #1a73e8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔎 Academic Search Engine</h1>
+
+      <div class="search-container">
+        <input
+          type="text"
+          id="searchInput"
+          class="search-input"
+          placeholder="Search academic topics, papers, or ask questions..."
+        />
+        <div id="suggestions" class="suggestions"></div>
+      </div>
+
+      <button id="searchButton" class="search-button">
+        🔍 Search All Sources
+      </button>
+
+      <div id="status" class="status">
+        <strong>System Status:</strong> Loading...
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" onclick="showTab('web')">
+          🌐 Web Crawler
+        </button>
+        <button class="tab" onclick="showTab('academic')">
+          📚 Academic Papers
+        </button>
+        <button class="tab" onclick="showTab('ai')">🤖 AI Answer</button>
+      </div>
+
+      <!-- Tab Contents -->
+      <div id="webTab" class="tab-content active">
+        <div class="stats">
+          <strong>🌐 Web Search Results</strong> - Search across GeeksforGeeks,
+          MathWorld, and Engineering.com
+        </div>
+        <div id="webResults" class="results"></div>
+      </div>
+
+      <div id="academicTab" class="tab-content">
+        <div class="stats">
+          <strong>📚 Academic Papers</strong> - Search research papers and
+          academic documents
+        </div>
+        <div id="academicResults" class="results"></div>
+      </div>
+
+      <div id="aiTab" class="tab-content">
+        <div class="stats">
+          <strong>🤖 AI Answer</strong> - Get comprehensive AI-generated answers
+          using all sources
+        </div>
+        <div id="aiResults" class="results"></div>
+      </div>
+    </div>
+
+    <script>
+      let searchTimeout;
+      let currentQuery = "";
+      const searchInput = document.getElementById("searchInput");
+      const suggestions = document.getElementById("suggestions");
+      const searchButton = document.getElementById("searchButton");
+      const status = document.getElementById("status");
+      const webResults = document.getElementById("webResults");
+      const academicResults = document.getElementById("academicResults");
+      const aiResults = document.getElementById("aiResults");
+
+      // Tab functionality
+      function showTab(tabName) {
+        // Hide all tab contents
+        const tabContents = document.querySelectorAll(".tab-content");
+        tabContents.forEach((content) => content.classList.remove("active"));
+
+        // Remove active class from all tabs
+        const tabs = document.querySelectorAll(".tab");
+        tabs.forEach((tab) => tab.classList.remove("active"));
+
+        // Show selected tab content
+        document.getElementById(tabName + "Tab").classList.add("active");
+
+        // Add active class to clicked tab
+        event.target.classList.add("active");
+      }
+
+      // Check system status on page load
+      async function checkStatus() {
+        try {
+          const response = await fetch("/api/status");
+          const data = await response.json();
+
+          let statusText = "<strong>System Status:</strong><br>";
+          statusText += `✅ Auto-suggestions: Available<br>`;
+          statusText += `🌐 Web Search: ${
+            data.features.web_search ? "Available" : "Not Available"
+          }<br>`;
+          statusText += `📚 Academic Search: ${
+            data.features.academic_search ? "Available" : "Not Available"
+          }<br>`;
+          statusText += `🤖 AI Answers: ${
+            data.features.ai_answers ? "Available" : "Not Available"
+          }`;
+
+          status.innerHTML = statusText;
+        } catch (error) {
+          status.innerHTML =
+            "<strong>System Status:</strong> Error checking status";
+        }
+      }
+
+      // Get suggestions as user types
+      async function getSuggestions(query) {
+        if (query.length < 1) {
+          suggestions.style.display = "none";
+          return;
+        }
+
+        try {
+          const response = await fetch(
+            `/api/suggestions?q=${encodeURIComponent(query)}`
+          );
+          const data = await response.json();
+
+          if (data.suggestions.length > 0) {
+            suggestions.innerHTML = data.suggestions
+              .map(
+                (suggestion) =>
+                  `<div class="suggestion-item" onclick="selectSuggestion('${suggestion}')">🔍 ${suggestion}</div>`
+              )
+              .join("");
+            suggestions.style.display = "block";
+          } else {
+            suggestions.style.display = "none";
+          }
+        } catch (error) {
+          console.error("Error fetching suggestions:", error);
+        }
+      }
+
+      // Select a suggestion
+      function selectSuggestion(suggestion) {
+        searchInput.value = suggestion;
+        suggestions.style.display = "none";
+        performSearch(suggestion);
+      }
+
+      // Perform search
+      async function performSearch(query) {
+        if (!query.trim()) return;
+
+        currentQuery = query;
+
+        // Show loading in all tabs
+        webResults.innerHTML =
+          '<div class="loading">🔍 Searching web sources...</div>';
+        academicResults.innerHTML =
+          '<div class="loading">📚 Searching academic papers...</div>';
+        aiResults.innerHTML =
+          '<div class="loading">🤖 Generating AI answer...</div>';
+
+        try {
+          const response = await fetch("/api/search", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ query: query }),
+          });
+
+          const data = await response.json();
+          displayResults(data);
+        } catch (error) {
+          const errorMsg =
+            '<div class="loading">❌ Error performing search</div>';
+          webResults.innerHTML = errorMsg;
+          academicResults.innerHTML = errorMsg;
+          aiResults.innerHTML = errorMsg;
+          console.error("Search error:", error);
+        }
+      }
+
+      // Display search results
+      function displayResults(data) {
+        if (data.error) {
+          const errorMsg = `<div class="loading">❌ ${data.error}</div>`;
+          webResults.innerHTML = errorMsg;
+          academicResults.innerHTML = errorMsg;
+          aiResults.innerHTML = errorMsg;
+          return;
+        }
+
+        // Display web results
+        if (data.web_results && data.web_results.length > 0) {
+          let html = `<h3>🌐 Web Results (${data.web_results.length} found)</h3>`;
+          data.web_results.forEach((result) => {
+            html += `
+                        <div class="result-item">
+                            <div class="result-source">${result.source}</div>
+                            <div class="result-title">${result.title}</div>
+                            <div class="result-snippet">${result.snippet}</div>
+                            <a href="${result.url}" target="_blank" style="color: #1a73e8; text-decoration: none;">🔗 ${result.url}</a>
+                        </div>
+                    `;
+          });
+          webResults.innerHTML = html;
+        } else {
+          webResults.innerHTML =
+            '<div class="loading">No web results found</div>';
+        }
+
+        // Display academic papers
+        if (data.academic_papers && data.academic_papers.length > 0) {
+          let html = `<h3>📚 Academic Papers (${data.academic_papers.length} found)</h3>`;
+          data.academic_papers.forEach((paper) => {
+            html += `
+                        <div class="result-item">
+                            <div class="result-source">Academic Paper</div>
+                            <div class="result-title">${paper.title}</div>
+                            <div class="result-snippet"><strong>Authors:</strong> ${paper.authors} • <strong>Year:</strong> ${paper.year}</div>
+                            <div class="result-snippet">${paper.abstract}</div>
+                        </div>
+                    `;
+          });
+          academicResults.innerHTML = html;
+        } else {
+          academicResults.innerHTML =
+            '<div class="loading">No academic papers found</div>';
+        }
+
+        // Display AI answer
+        if (data.ai_answer) {
+          let html = `<h3>🤖 AI Answer</h3>`;
+          html += `<div class="result-item"><div class="result-snippet">${data.ai_answer}</div></div>`;
+          aiResults.innerHTML = html;
+        } else {
+          aiResults.innerHTML =
+            '<div class="loading">No AI answer available</div>';
+        }
+      }
+
+      // Event listeners
+      searchInput.addEventListener("input", (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          getSuggestions(e.target.value);
+        }, 300);
+      });
+
+      searchInput.addEventListener("focus", () => {
+        if (searchInput.value.length >= 1) {
+          getSuggestions(searchInput.value);
+        }
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".search-container")) {
+          suggestions.style.display = "none";
+        }
+      });
+
+      searchButton.addEventListener("click", () => {
+        performSearch(searchInput.value);
+      });
+
+      searchInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          performSearch(searchInput.value);
+        }
+      });
+
+      // Initialize
+      checkStatus();
+    </script>
+  </body>
+</html>

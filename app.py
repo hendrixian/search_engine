@@ -111,9 +111,591 @@ minio_client = Minio(MINIO_ENDPOINT, access_key=MINIO_ROOT_USER, secret_key=MINI
 st.title("🔎 Comprehensive Academic & Web Search")
 st.markdown("*Automatically search academic papers, generate AI answers, and discover web content - all in one place*")
 
-query = st.text_input("Enter a keyword or ask a question", placeholder="e.g., 'machine learning algorithms' or 'quantum computing applications'")
+# Add custom CSS for better styling
+st.markdown("""
+<style>
+    /* Google-style buttons */
+    .stButton > button {
+        border-radius: 4px;
+        border: 1px solid #dadce0;
+        transition: all 0.2s ease;
+        font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    }
+    
+    .stButton > button:hover {
+        border-color: #c6c6c6;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+        transform: none;
+    }
+    
+    /* Primary search button (Google style) */
+    .stButton > button[data-testid="baseButton-primary"] {
+        background-color: #f8f9fa !important;
+        color: #3c4043 !important;
+        border: 1px solid #dadce0 !important;
+        padding: 8px 16px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+    
+    .stButton > button[data-testid="baseButton-primary"]:hover {
+        background-color: #f1f3f4 !important;
+        border-color: #c6c6c6 !important;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.1) !important;
+    }
+    .suggestion-section {
+        background-color: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin: 0.5rem 0 1rem 0;
+        border-left: 5px solid #007bff;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border: 2px solid #e3f2fd;
+    }
+    
+    /* Make suggestions more prominent */
+    .suggestion-section h3 {
+        color: #1976d2;
+        margin-bottom: 1rem;
+    }
+    
+    /* Enhance button styling */
+    .stButton > button[data-testid="baseButton-secondary"] {
+        background-color: #ffffff;
+        color: #1976d2;
+        border: 2px solid #1976d2;
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        margin: 0.25rem 0;
+    }
+    
+    .stButton > button[data-testid="baseButton-secondary"]:hover {
+        background-color: #1976d2;
+        color: white;
+        border-color: #1976d2;
+    }
+    
+    /* Google-style search container */
+    .search-container {
+        position: relative;
+        width: 100%;
+    }
+    
+    .search-input-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+        background: white;
+        border: 1px solid #dfe1e5;
+        border-radius: 24px;
+        box-shadow: 0 1px 6px rgba(32,33,36,0.28);
+        transition: all 0.2s ease;
+        overflow: hidden;
+    }
+    
+    .search-input-wrapper:hover {
+        box-shadow: 0 1px 6px rgba(32,33,36,0.28), 0 1px 3px rgba(32,33,36,0.1);
+    }
+    
+    .search-input-wrapper:focus-within {
+        border-color: #4285f4;
+        box-shadow: 0 1px 6px rgba(32,33,36,0.28), 0 0 0 2px rgba(66,133,244,0.2);
+    }
+    
+    .search-icon {
+        position: absolute;
+        left: 16px;
+        color: #9aa0a6;
+        font-size: 18px;
+        z-index: 10;
+        pointer-events: none;
+    }
+    
+    .search-input-inner {
+        flex: 1;
+    }
+    
+    /* Google-style search input */
+    .stTextInput > div > div > input {
+        border: none !important;
+        border-radius: 0 !important;
+        padding: 12px 20px 12px 48px !important;
+        font-size: 16px !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        transition: none !important;
+        outline: none !important;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border: none !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }
+    
+    .stTextInput > div > div > input:hover {
+        box-shadow: none !important;
+    }
+    
+    /* Ensure suggestions appear immediately below search */
+    .suggestion-section {
+        margin-top: 0.5rem !important;
+        margin-bottom: 1rem !important;
+    }
+    
+    /* Make suggestions more prominent */
+    .suggestion-section h3 {
+        margin-top: 0 !important;
+        margin-bottom: 1rem !important;
+    }
+    
+    /* Quick access to suggestions */
+    .quick-suggestions {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1rem;
+        border-radius: 12px;
+        margin: 0.5rem 0;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    /* Quick suggestion buttons */
+    .quick-suggestions .stButton > button {
+        background-color: rgba(255, 255, 255, 0.9) !important;
+        color: #667eea !important;
+        border: 2px solid rgba(255, 255, 255, 0.3) !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .quick-suggestions .stButton > button:hover {
+        background-color: white !important;
+        color: #667eea !important;
+        border-color: white !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.2) !important;
+    }
+    
+    /* Ensure suggestions are always visible */
+    .suggestion-section, .quick-suggestions {
+        animation: fadeIn 0.3s ease-in;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Google-style suggestions */
+    .google-suggestions {
+        background: white;
+        border: 1px solid #dfe1e5;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        margin: 0.5rem 0;
+        overflow: hidden;
+        animation: slideDown 0.2s ease-out;
+    }
+    
+    .suggestions-header {
+        background: #f8f9fa;
+        padding: 8px 16px;
+        border-bottom: 1px solid #dfe1e5;
+        font-size: 12px;
+        color: #5f6368;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .suggestions-icon {
+        font-size: 14px;
+    }
+    
+    .suggestions-text {
+        font-weight: 500;
+    }
+    
+    /* Google-style suggestion buttons */
+    .google-suggestions .stButton > button {
+        background: white !important;
+        color: #202124 !important;
+        border: none !important;
+        border-radius: 0 !important;
+        text-align: left !important;
+        padding: 12px 16px !important;
+        font-size: 14px !important;
+        font-weight: 400 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        transition: background-color 0.1s ease !important;
+        border-bottom: 1px solid #f1f3f4 !important;
+    }
+    
+    .google-suggestions .stButton > button:hover {
+        background-color: #f8f9fa !important;
+        color: #202124 !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+    
+    .google-suggestions .stButton > button:last-child {
+        border-bottom: none !important;
+    }
+    
+    /* No suggestions styling */
+    .no-suggestions {
+        background: #f8f9fa;
+        border: 1px solid #dfe1e5;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 0.5rem 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #5f6368;
+        font-size: 14px;
+    }
+    
+    .no-suggestions-icon {
+        font-size: 16px;
+    }
+    
+    /* Slide down animation for suggestions */
+    @keyframes slideDown {
+        from { 
+            opacity: 0; 
+            transform: translateY(-8px); 
+            max-height: 0;
+        }
+        to { 
+            opacity: 1; 
+            transform: translateY(0); 
+            max-height: 300px;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
 
-if query:
+# Academic-focused search suggestions
+ACADEMIC_SUGGESTIONS = [
+    "machine learning algorithms", "deep learning neural networks", "natural language processing",
+    "computer vision", "artificial intelligence", "data science", "quantum computing",
+    "cybersecurity", "software engineering", "web development", "database systems",
+    "python programming", "javascript frameworks", "data structures algorithms",
+    "mobile app development", "user interface design", "network protocols",
+    "operating systems", "cloud computing", "blockchain technology",
+    "machine learning applications", "neural network architecture", "computer science",
+    "information technology", "software architecture", "web technologies",
+    "programming languages", "algorithm design", "data analysis", "statistics",
+    "mathematical modeling", "optimization techniques", "research methodology",
+    "big data analytics", "machine learning models", "deep learning frameworks",
+    "computer graphics", "human computer interaction", "software testing",
+    "agile development", "devops practices", "microservices architecture",
+    "api development", "frontend frameworks", "backend development",
+    "mobile app design", "user experience design", "information security",
+    "network security", "cryptography", "distributed systems",
+    "parallel computing", "high performance computing", "bioinformatics",
+    "computational biology", "robotics", "autonomous systems",
+    "internet of things", "edge computing", "fog computing"
+]
+
+# Initialize search history in session state
+if 'search_history' not in st.session_state:
+    st.session_state.search_history = []
+
+def add_to_search_history(query):
+    """Add query to search history"""
+    if query and query.strip():
+        clean_query = query.strip().lower()
+        # Remove if already exists and add to front
+        if clean_query in st.session_state.search_history:
+            st.session_state.search_history.remove(clean_query)
+        st.session_state.search_history.insert(0, clean_query)
+        # Keep only last 10 searches
+        st.session_state.search_history = st.session_state.search_history[:10]
+
+def get_smart_suggestions(user_input, suggestions=ACADEMIC_SUGGESTIONS, max_results=6):
+    """Get smart suggestions based on user input"""
+    if not user_input or len(user_input) < 1:
+        return []
+    
+    user_input_lower = user_input.lower().strip()
+    
+    # Priority 1: Search history matches (highest priority)
+    history_matches = [s for s in st.session_state.search_history if user_input_lower in s.lower()]
+    
+    # Priority 2: Exact prefix matches from academic suggestions
+    prefix_matches = [s for s in suggestions if s.lower().startswith(user_input_lower)]
+    
+    # Priority 3: Contains matches from academic suggestions
+    contains_matches = [s for s in suggestions if user_input_lower in s.lower() and s not in prefix_matches]
+    
+    # Priority 4: Fuzzy matches (words that contain the input)
+    word_matches = []
+    for suggestion in suggestions:
+        if suggestion not in prefix_matches and suggestion not in contains_matches:
+            words = suggestion.lower().split()
+            if any(user_input_lower in word for word in words):
+                word_matches.append(suggestion)
+    
+    # Priority 5: Related concepts (if we still need more suggestions)
+    related_matches = []
+    if len(history_matches + prefix_matches + contains_matches + word_matches) < max_results:
+        # Find suggestions that might be related based on common academic themes
+        academic_themes = {
+            'machine learning': ['artificial intelligence', 'deep learning', 'neural networks', 'data science'],
+            'programming': ['software engineering', 'web development', 'mobile development', 'algorithm design'],
+            'security': ['cybersecurity', 'network security', 'information security', 'cryptography'],
+            'data': ['big data analytics', 'data analysis', 'statistics', 'database systems'],
+            'web': ['frontend frameworks', 'backend development', 'api development', 'web technologies']
+        }
+        
+        for theme, related in academic_themes.items():
+            if user_input_lower in theme or any(user_input_lower in r.lower() for r in related):
+                for related_item in related:
+                    if related_item not in history_matches + prefix_matches + contains_matches + word_matches:
+                        related_matches.append(related_item)
+                        if len(history_matches + prefix_matches + contains_matches + word_matches + related_matches) >= max_results:
+                            break
+    
+    # Combine all matches with priority order
+    all_matches = history_matches + prefix_matches + contains_matches + word_matches + related_matches
+    
+    # Remove duplicates and limit results
+    unique_matches = list(dict.fromkeys(all_matches))  # Preserves order
+    return unique_matches[:max_results]
+
+# Enhanced search interface with auto-suggestions
+# Search interface now uses full width since search button is removed
+# Google-style search input with icon
+st.markdown("""
+<div class="search-container">
+    <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <div class="search-input-inner">
+""", unsafe_allow_html=True)
+
+# Simple text input without on_change to prevent unwanted triggers
+query = st.text_input(
+    "", 
+    placeholder="Search academic topics, papers, or ask questions...",
+    help="Start typing to see Google-style suggestions",
+    key="main_search_input",
+    label_visibility="collapsed"
+)
+
+# Track input changes for real-time suggestions (AFTER query is defined)
+if query != st.session_state.get('last_query', ''):
+    st.session_state.last_query = query
+    # Reset any previous search triggers to prevent unwanted searches
+    if 'search_triggered' in st.session_state:
+        del st.session_state.search_triggered
+
+st.markdown("""
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Show helpful tip about search button
+st.caption("💡 **Tip:** Type your query and click Search button, or click suggestions below")
+
+# Debug section to show current state (remove this later)
+if st.checkbox("🐛 Show Debug Info", key="debug_checkbox"):
+    st.write("**Debug Information:**")
+    st.write(f"- Query: '{query}'")
+    st.write(f"- Search triggered: {st.session_state.get('search_triggered', False)}")
+    st.write(f"- Suggestion clicked: {st.session_state.get('suggestion_clicked', False)}")
+    st.write(f"- Last query: {st.session_state.get('last_query', 'None')}")
+    st.write(f"- Selected query: {st.session_state.get('selected_query', 'None')}")
+
+# Add a search button that appears when there's text (simulates Enter key)
+if query and len(query.strip()) > 0:
+    # Style the search button to look integrated with the search input
+    st.markdown("""
+    <style>
+    .search-button-container {
+        margin-top: 10px;
+        text-align: center;
+    }
+    .search-button-container .stButton > button {
+        background: linear-gradient(135deg, #4285f4 0%, #34a853 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 20px !important;
+        padding: 10px 30px !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 15px rgba(66, 133, 244, 0.3) !important;
+        transition: all 0.3s ease !important;
+    }
+    .search-button-container .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(66, 133, 244, 0.4) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="search-button-container">', unsafe_allow_html=True)
+    if st.button("🔍 Search Now", key="enter_search_button", type="primary", use_container_width=True):
+        # Set the search trigger and rerun
+        st.session_state.search_triggered = True
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Search button removed - searches are now triggered by Enter key or suggestion clicks
+
+# Google-style auto-suggestions display - IMMEDIATELY below search bar
+# Show suggestions from 1 character with real-time updates
+if query and len(query) >= 1:  # Show suggestions from 1 character
+    # Get suggestions instantly without delay (Google shows 4-6 suggestions)
+    suggestions = get_smart_suggestions(query, ACADEMIC_SUGGESTIONS, max_results=5)
+    
+    if suggestions:
+        # Google-style suggestions dropdown
+        st.markdown("""
+        <div class="google-suggestions">
+            <div class="suggestions-header">
+                <span class="suggestions-icon">💡</span>
+                <span class="suggestions-text">Suggestions as you type</span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Display suggestions in a clean list format
+        for i, suggestion in enumerate(suggestions):
+            # Create a clickable suggestion that looks like Google's
+            if st.button(
+                f"🔍 {suggestion}", 
+                key=f"suggest_{i}",
+                help=f"Click to search for: {suggestion}",
+                use_container_width=True,
+                type="secondary"
+            ):
+                # Update the query and trigger search
+                st.session_state.selected_query = suggestion
+                st.rerun()
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # Show search tips
+        st.caption("💡 **Tip:** Click any suggestion above to search instantly")
+    
+    else:
+        # Show "no suggestions" message
+        st.markdown("""
+        <div class="no-suggestions">
+            <span class="no-suggestions-icon">💭</span>
+            <span class="no-suggestions-text">No suggestions found for "{query}"</span>
+        </div>
+        """.format(query=query), unsafe_allow_html=True)
+
+# Show quick access suggestions when no query (right below search bar)
+elif not query:
+    # Quick access to popular topics
+    st.markdown("---")
+    st.markdown("### 🚀 **Quick Start - Popular Topics**")
+    st.markdown("*Click any topic below to start searching instantly*")
+    
+    # Apply gradient styling for quick suggestions
+    st.markdown('<div class="quick-suggestions">', unsafe_allow_html=True)
+    
+    # Show popular topics in a compact grid
+    quick_topics = [
+        "machine learning", "artificial intelligence", "deep learning",
+        "programming", "web development", "data science",
+        "cybersecurity", "software engineering", "python programming"
+    ]
+    
+    cols = st.columns(3)
+    for i, topic in enumerate(quick_topics):
+        with cols[i % 3]:
+            if st.button(
+                f"🚀 {topic.title()}", 
+                key=f"quick_{i}",
+                help=f"Quick search for: {topic}",
+                use_container_width=True
+            ):
+                st.session_state.selected_query = topic
+                st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Handle suggestion selection
+if 'selected_query' in st.session_state:
+    query = st.session_state.selected_query
+    del st.session_state.selected_query
+    # Mark that search should be triggered from suggestion click
+    st.session_state.suggestion_clicked = True
+
+# Show popular searches and recent history when no input
+if not query:
+    # Recent search history
+    if st.session_state.search_history:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("### 📚 Recent Searches")
+        with col2:
+            if st.button("🗑️ Clear History", key="clear_history", help="Clear search history"):
+                st.session_state.search_history.clear()
+                st.rerun()
+        
+        # Apply custom styling to recent searches
+        st.markdown('<div class="suggestion-section">', unsafe_allow_html=True)
+        history_cols = st.columns(min(len(st.session_state.search_history), 3))
+        for i, history_item in enumerate(st.session_state.search_history[:6]):
+            with history_cols[i % 3]:
+                if st.button(
+                    f"🕒 {history_item.title()}", 
+                    key=f"history_{i}",
+                    help=f"Repeat search: {history_item}",
+                    use_container_width=True
+                ):
+                    st.session_state.selected_query = history_item
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Popular academic searches
+    st.markdown("### 🔥 Popular Academic Searches")
+    popular_suggestions = ACADEMIC_SUGGESTIONS[:6]  # Show first 6 as popular
+    
+    # Apply custom styling to popular searches
+    st.markdown('<div class="suggestion-section">', unsafe_allow_html=True)
+    cols = st.columns(3)
+    for i, suggestion in enumerate(popular_suggestions):
+        with cols[i % 3]:
+            if st.button(
+                f"🔥 {suggestion.title()}", 
+                key=f"popular_{i}",
+                help=f"Quick search for: {suggestion}",
+                use_container_width=True
+            ):
+                st.session_state.selected_query = suggestion
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Perform search ONLY when search button is clicked or suggestion is clicked
+# NOT when just typing or changing tabs/windows
+if query and (st.session_state.get('search_triggered', False) or st.session_state.get('suggestion_clicked', False)):
+    # Store the trigger type BEFORE resetting
+    was_search_triggered = st.session_state.get('search_triggered', False)
+    was_suggestion_clicked = st.session_state.get('suggestion_clicked', False)
+    
+    # Reset the search triggers to prevent auto-execution
+    if 'search_triggered' in st.session_state:
+        st.session_state.search_triggered = False
+    if 'suggestion_clicked' in st.session_state:
+        st.session_state.suggestion_clicked = False
+    
+    # Record search in history
+    add_to_search_history(query)
+    
+    # Show what triggered the search
+    if was_search_triggered:
+        st.info("🔍 Search triggered by search button click")
+    elif was_suggestion_clicked:
+        st.info("🔍 Search triggered by suggestion click")
+    
     # Start timing the entire search process
     search_start_time = time.time()
     
@@ -626,10 +1208,7 @@ if total_search_time > 0:
         if 'passages' in locals():
             st.metric("📚 Academic Sources", len(passages))
 
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("*💡 **Search Tips:** Use specific technical terms, combine concepts, or ask direct questions*")
-with col2:
+st.markdown("*💡 **Search Tips:** Use specific technical terms, combine concepts, or ask direct questions. Click Search button or click suggestions.*")
     st.markdown("*🔄 **Auto-Search:** All sources are automatically searched in parallel for comprehensive results*")
 
 # System status

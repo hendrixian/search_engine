@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Test Auto-Suggestions</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        background: #f0f0f0;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+      }
+
+      .search-wrapper {
+        position: relative;
+      }
+      .search-input {
+        width: 100%;
+        padding: 15px;
+        font-size: 16px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        box-sizing: border-box;
+      }
+
+      .suggestions-container {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 2px solid #007bff;
+        border-radius: 8px;
+        margin-top: 4px;
+        max-height: 300px;
+        overflow-y: auto;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
+
+      .suggestions-header {
+        padding: 12px 16px;
+        border-bottom: 1px solid #eee;
+        background: #f8f9fa;
+        font-weight: 600;
+        color: #666;
+        font-size: 12px;
+      }
+
+      .suggestions-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .suggestion-item {
+        padding: 15px 20px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: background-color 0.2s;
+      }
+
+      .suggestion-item:hover {
+        background-color: #f8f9fa;
+      }
+
+      .suggestion-item:last-child {
+        border-bottom: none;
+      }
+
+      .suggestion-item i {
+        color: #007bff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🧪 Simple Auto-Suggestions Test</h1>
+      <p>
+        This tests the exact same functionality as your main page but in a
+        simpler setup.
+      </p>
+
+      <div class="search-wrapper">
+        <input
+          type="text"
+          class="search-input"
+          id="testInput"
+          placeholder="Type 'machine' to test suggestions..."
+          autocomplete="off"
+        />
+
+        <div
+          id="testSuggestions"
+          class="suggestions-container"
+          style="display: none"
+        >
+          <div class="suggestions-header">
+            <i class="fas fa-lightbulb"></i> Suggestions
+          </div>
+          <ul class="suggestions-list" id="testList"></ul>
+        </div>
+      </div>
+
+      <div
+        style="
+          margin-top: 20px;
+          padding: 20px;
+          background: #f8f9fa;
+          border-radius: 8px;
+        "
+      >
+        <h3>🔧 Debug Info</h3>
+        <div id="debugInfo"></div>
+      </div>
+    </div>
+
+    <script>
+      const input = document.getElementById("testInput");
+      const container = document.getElementById("testSuggestions");
+      const list = document.getElementById("testList");
+      const debug = document.getElementById("debugInfo");
+
+      let timeout = null;
+
+      function log(message) {
+        debug.innerHTML +=
+          "<div>" +
+          new Date().toLocaleTimeString() +
+          " - " +
+          message +
+          "</div>";
+      }
+
+      input.addEventListener("input", function (e) {
+        const query = e.target.value.trim();
+
+        if (timeout) clearTimeout(timeout);
+
+        if (query.length === 0) {
+          container.style.display = "none";
+          log("🔍 Query cleared - hiding suggestions");
+          return;
+        }
+
+        timeout = setTimeout(() => {
+          fetchSuggestions(query);
+        }, 200);
+      });
+
+      async function fetchSuggestions(query) {
+        log("🔍 Fetching suggestions for: " + query);
+
+        try {
+          const response = await fetch(
+            "/api/suggestions?q=" + encodeURIComponent(query)
+          );
+          const data = await response.json();
+
+          log("✅ API Response: " + JSON.stringify(data));
+
+          if (data.suggestions && data.suggestions.length > 0) {
+            displaySuggestions(data.suggestions);
+          } else {
+            container.style.display = "none";
+            log("❌ No suggestions returned");
+          }
+        } catch (error) {
+          log("❌ Error: " + error.message);
+          container.style.display = "none";
+        }
+      }
+
+      function displaySuggestions(suggestions) {
+        log("📝 Displaying " + suggestions.length + " suggestions");
+
+        list.innerHTML = "";
+
+        suggestions.forEach((suggestion) => {
+          const li = document.createElement("li");
+          li.className = "suggestion-item";
+          li.innerHTML = '<i class="fas fa-search"></i> ' + suggestion;
+
+          li.addEventListener("click", () => {
+            input.value = suggestion;
+            container.style.display = "none";
+            log("✅ Selected: " + suggestion);
+          });
+
+          list.appendChild(li);
+        });
+
+        container.style.display = "block";
+        log("✅ Suggestions container made visible");
+      }
+
+      // Click outside to hide
+      document.addEventListener("click", function (e) {
+        if (!input.contains(e.target) && !container.contains(e.target)) {
+          container.style.display = "none";
+          log("👋 Clicked outside - hiding suggestions");
+        }
+      });
+
+      log("🚀 Test page loaded successfully");
+    </script>
+  </body>
+</html>

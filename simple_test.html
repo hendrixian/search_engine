@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ULTRA SIMPLE TEST</title>
+  </head>
+  <body style="padding: 50px; font-family: Arial">
+    <h1>ULTRA SIMPLE SUGGESTIONS TEST</h1>
+
+    <div style="position: relative; width: 400px">
+      <input
+        type="text"
+        id="input"
+        placeholder="Type 'ma'..."
+        style="
+          width: 100%;
+          padding: 10px;
+          font-size: 16px;
+          border: 2px solid #ccc;
+        "
+      />
+
+      <div
+        id="suggestions"
+        style="
+          position: absolute;
+          top: 100%;
+          left: 0;
+          right: 0;
+          background: white;
+          border: 3px solid red;
+          display: none;
+          z-index: 1000;
+        "
+      >
+        <div id="list"></div>
+      </div>
+    </div>
+
+    <div style="margin-top: 20px; padding: 20px; background: #f0f0f0">
+      <h3>Debug Log:</h3>
+      <div id="log"></div>
+    </div>
+
+    <script>
+      const input = document.getElementById("input");
+      const suggestions = document.getElementById("suggestions");
+      const list = document.getElementById("list");
+      const log = document.getElementById("log");
+
+      function addLog(msg) {
+        log.innerHTML +=
+          "<div>" + new Date().toLocaleTimeString() + ": " + msg + "</div>";
+      }
+
+      addLog("Script loaded");
+
+      input.addEventListener("input", function () {
+        const query = input.value.trim();
+        addLog("Input changed: " + query);
+
+        if (query.length === 0) {
+          suggestions.style.display = "none";
+          addLog("Hiding suggestions");
+          return;
+        }
+
+        // Call API
+        fetch("/api/suggestions?q=" + encodeURIComponent(query))
+          .then((response) => {
+            addLog("API response status: " + response.status);
+            return response.json();
+          })
+          .then((data) => {
+            addLog("API data: " + JSON.stringify(data));
+
+            if (data.suggestions && data.suggestions.length > 0) {
+              list.innerHTML = "";
+              data.suggestions.forEach((suggestion) => {
+                const div = document.createElement("div");
+                div.style.cssText =
+                  "padding: 10px; border-bottom: 1px solid #ccc; cursor: pointer; background: white;";
+                div.textContent = suggestion;
+                div.onclick = () => {
+                  input.value = suggestion;
+                  suggestions.style.display = "none";
+                  addLog("Selected: " + suggestion);
+                };
+                list.appendChild(div);
+              });
+
+              suggestions.style.display = "block";
+              addLog("Showing suggestions container");
+            } else {
+              suggestions.style.display = "none";
+              addLog("No suggestions to show");
+            }
+          })
+          .catch((error) => {
+            addLog("API error: " + error.message);
+            suggestions.style.display = "none";
+          });
+      });
+    </script>
+  </body>
+</html>

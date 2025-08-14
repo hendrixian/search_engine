@@ -10,22 +10,23 @@ This project is a full-stack academic paper and web content search engine built 
 - **MinIO Integration:** Stores PDFs and extracted passages.
 - **Search UI:** Streamlit app for searching and displaying academic papers.
 - **Web Crawling:** Fetches articles from websites using custom crawlers.
+- **Smart Auto-Suggestions:** Intelligent search suggestions with academic focus and search history.
 
 ## Project Structure
 
 ```
 .
-├── Docker   
+├── Docker
     ├── .env
     ├── docker-compose.yml
-    ├── Dockerfile 
-├── crawlers   
+    ├── Dockerfile
+├── crawlers
     ├── base_engine.py
     ├── crawl.py
-    ├── engineering.py        
-    ├── geeksforgeeks.py        
-    ├── mathworld.py        
-    ├── multi_crawler.py        
+    ├── engineering.py
+    ├── geeksforgeeks.py
+    ├── mathworld.py
+    ├── multi_crawler.py
 ├── app.py           # Streamlit web app for searching papers
 ├── index.py         # Indexes papers into Elasticsearch
 ├── preprocess.py    # Preprocesses paper data with PySpark
@@ -40,7 +41,6 @@ This project is a full-stack academic paper and web content search engine built 
 
 Make sure **Docker Desktop** is running before continuing.
 
-
 ### 2. Start All Services
 
 Open a terminal in **VS Code**, navigate to your project directory, and run:
@@ -48,8 +48,8 @@ Open a terminal in **VS Code**, navigate to your project directory, and run:
 ```sh
 docker compose -f Docker\docker-compose.yml up --build
 ```
-This will start all necessary services including MinIO, Elasticsearch, and your Streamlit app. Wait until everything is fully built and running.
 
+This will start all necessary services including MinIO, Elasticsearch, and your Streamlit app. Wait until everything is fully built and running.
 
 ### 3. Upload PDFs to MinIO
 
@@ -61,32 +61,36 @@ Create a bucket named papers if it doesn't already exist.
 
 Upload your academic PDF files to the papers bucket.
 
-
 ### 4. Preprocess Data
 
 In a PowerShell or Command Prompt window (same directory as mc.exe), run:
+
 ```sh
 .\mc.exe alias set local http://localhost:9000 minioadmin minioadmin
 .\mc.exe anonymous set download local/papers
 ```
+
 This sets up the alias for your local MinIO instance and makes the papers bucket publicly readable so the app can access PDFs directly.
 
 ### 5. Preprocess Data
 
- Open second terminal
+Open second terminal
+
 ```sh
 docker exec -it academic-search-app /bin/bash
 ```
+
 Inside the container, run the following scripts one by one:
+
 ```sh
 python preprocess.py
 python process_passages.py
 python index.py
 ```
+
 preprocess.py: cleans raw text (e.g. abstracts).
 process_passages.py: extracts and stores text passages from PDFs.
 index.py: indexes metadata and file info into Elasticsearch.
-
 
 ### 6. Use the Search Engine
 
@@ -95,6 +99,48 @@ Once all scripts have completed:
     Go to the Streamlit web interface (URL shown in your terminal, usually http://localhost:8501)
     Use the search bar to explore academic papers by entering keywords in metadata and ask any related questions
 
+## Auto-Suggestions Feature
+
+### How It Works
+
+The search engine now includes intelligent auto-suggestions that help users find relevant academic topics quickly:
+
+#### **Smart Suggestion Algorithm**
+
+1. **Search History Priority** - Your recent searches appear first
+2. **Prefix Matching** - Exact matches from the beginning of suggestions
+3. **Contains Matching** - Suggestions that contain your input
+4. **Word-level Matching** - Fuzzy matching for better discovery
+
+#### **Academic Focus**
+
+- **50+ pre-loaded suggestions** covering computer science topics
+- **Machine learning, AI, programming, cybersecurity** and more
+- **Research methodology** and academic concepts
+- **Industry-relevant technologies** and frameworks
+
+#### **User Experience Features**
+
+- **Real-time suggestions** as you type (minimum 2 characters)
+- **Clickable suggestions** for instant search
+- **Search history tracking** (last 10 searches)
+- **Clear history option** for privacy
+- **Popular searches** when no input is provided
+
+#### **Technical Implementation**
+
+- **No database required** - Uses Streamlit session state
+- **Fast response** - In-memory suggestions
+- **Smart ranking** - Prioritizes relevant results
+- **Session persistence** - Remembers your searches during the session
+
+### Usage Examples
+
+1. **Type "machine"** → See suggestions like "machine learning algorithms", "machine learning models"
+2. **Type "deep"** → Get "deep learning neural networks", "deep learning frameworks"
+3. **Click any suggestion** → Instantly search for that topic
+4. **View recent searches** → Quickly repeat previous queries
+5. **Explore popular topics** → Discover trending academic subjects
 
 ## Notes
 
@@ -107,9 +153,5 @@ Once all scripts have completed:
 ## Requirements
 
 See `requirements.txt` for all Python dependencies.
-
-
-
-
 
 how are structure-oriented and object-oriented different?

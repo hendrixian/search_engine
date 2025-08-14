@@ -1,0 +1,22 @@
+Flask==2.3.3
+requests==2.31.0
+elasticsearch==8.10.0
+beautifulsoup4==4.12.2
+python-dotenv==1.0.0
+Werkzeug==2.3.7
+
+# AI and ML libraries
+sentence-transformers==2.2.2
+transformers==4.35.0
+torch==2.1.0
+
+# API libraries
+httpx==0.25.2
+tenacity==8.2.3
+
+# Storage libraries
+minio==7.2.0
+
+# Additional utilities
+lxml==4.9.3
+html5lib==1.1
