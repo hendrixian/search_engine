@@ -1,3 +1,4 @@
+# Enhanced flask_app.py with dashboard integration
 from flask import Flask, render_template, request, jsonify
 import time
 import json
@@ -8,10 +9,15 @@ import html
 import re
 from functools import lru_cache
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
+import torch
+import httpx
+import redis
+from flask_sse import sse
+import random
 
 # Load environment variables
 load_dotenv()
-print(f"🔍 Environment file loaded from: {os.path.abspath('.env')}")
 
 # Import your existing search functionality
 try:
@@ -31,20 +37,24 @@ try:
     mistral_available = True
     print("✅ Mistral AI module imported successfully")
 except ImportError as e:
-    print(f"⚠️  Mistral AI not available: {e}")
+    print(f"⚠️ Mistral AI not available: {e}")
     call_mistral = None
     mistral_available = False
 except ValueError as e:
-    print(f"⚠️  Mistral API key not configured: {e}")
+    print(f"⚠️ Mistral API key not configured: {e}")
     call_mistral = None
     mistral_available = False
 
-app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secure-secret-key-here')
+app = Flask(__name__, template_folder='templates')
+app.secret_key = os.getenv('FLASK_SECRET_KEY')
+
+# Redis configuration for dashboard communication
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
 
 # Environment variables
-ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "http://localhost:9200")
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "http://elasticsearch:9200")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_ROOT_USER = os.getenv("MINIO_ROOT_USER", "minioadmin")
 MINIO_ROOT_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
@@ -55,71 +65,151 @@ MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR", "./models")
 os.environ["TRANSFORMERS_CACHE"] = MODEL_CACHE_DIR
 os.environ["SENTENCE_TRANSFORMERS_HOME"] = MODEL_CACHE_DIR
 
-# Global variables for loaded models and services
-embedder = None
-qa_pipeline = None
-web_crawler = None
-es = None
-minio_client = None
+# Global variables for loaded models and services - LAZY LOADED
+_embedder = None
+_qa_pipeline = None
+_web_crawler = None
+_es = None
+_minio_client = None
 
-def load_models():
-    """Load AI models (called once at startup)"""
-    global embedder, qa_pipeline
-    try:
-        print("Loading AI models...")
-        embedder = SentenceTransformer("all-MiniLM-L6-v2")
-        qa_pipeline = pipeline("question-answering", model="deepset/roberta-base-squad2")
-        print("✅ AI models loaded successfully")
-    except Exception as e:
-        print(f"❌ Error loading AI models: {e}")
-        embedder = None
-        qa_pipeline = None
+# Redis connection for dashboard integration
+try:
+    redis_conn = redis.Redis(
+        host=REDIS_HOST, 
+        port=REDIS_PORT, 
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_timeout=5
+    )
+    redis_conn.ping()
+    print("✅ Redis connected for dashboard integration")
+except Exception as e:
+    print(f"⚠️ Redis connection failed: {e}")
+    redis_conn = None
 
-def initialize_services():
-    """Initialize all search services"""
-    global web_crawler, es, minio_client
+class DashboardLogger:
+    """Helper class to stream search events to dashboard"""
     
-    # Initialize web crawler
-    try:
-        web_crawler = MultiSiteCrawler()
-        print("✅ Web crawler initialized")
-    except Exception as e:
-        print(f"❌ Error initializing web crawler: {e}")
-        web_crawler = None
+    def __init__(self, redis_client):
+        self.redis = redis_client
+        
+    def log_search_event(self, event_type, search_id, **kwargs):
+        """Log search event to Redis stream for dashboard monitoring"""
+        if not self.redis:
+            return
+            
+        try:
+            event_data = {
+                "event": event_type,
+                "search_id": search_id,
+                "timestamp": datetime.now().isoformat(),
+                **kwargs
+            }
+            self.redis.xadd("search_stream", event_data)
+            
+            # Also publish to pub/sub for real-time updates
+            self.redis.publish("search_events", json.dumps(event_data))
+            
+        except Exception as e:
+            print(f"Failed to log to dashboard: {e}")
     
-    # Initialize Elasticsearch (optional - won't crash if not available)
-    try:
-        es = Elasticsearch([ELASTICSEARCH_HOST], request_timeout=3, max_retries=1)
-        # Test connection with shorter timeout
-        if es.ping():
-            print("✅ Elasticsearch connected")
-        else:
-            print("⚠️  Elasticsearch not responding - academic search will be disabled")
-            es = None
-    except Exception as e:
-        print(f"⚠️  Elasticsearch not available - academic search will be disabled: {e}")
-        es = None
-    
-    # Initialize MinIO (optional - won't crash if not available)
-    try:
-        minio_client = Minio(
-            MINIO_ENDPOINT,
-            access_key=MINIO_ROOT_USER,
-            secret_key=MINIO_ROOT_PASSWORD,
-            secure=MINIO_SECURE
+    def log_stage(self, search_id, stage, status, **details):
+        """Log a specific search stage"""
+        self.log_search_event(
+            "search_stage",
+            search_id,
+            stage=stage,
+            status=status,
+            **details
         )
-        # Test connection with shorter timeout
-        minio_client.list_buckets()
-        print("✅ MinIO client initialized")
-    except Exception as e:
-        print(f"⚠️  MinIO not available - passage search will be disabled: {e}")
-        minio_client = None
+    
+    def log_error(self, search_id, stage, error):
+        """Log an error during search"""
+        self.log_search_event(
+            "search_error",
+            search_id,
+            stage=stage,
+            error=str(error)
+        )
 
-# Initialize services at startup
-print("🚀 Initializing Flask app services...")
-initialize_services()
-load_models()
-print("✅ Flask app initialization complete!")
+# Initialize dashboard logger
+dashboard_logger = DashboardLogger(redis_conn)
+
+def get_embedder():
+    """Lazy load embedder model only when needed"""
+    global _embedder
+    if _embedder is None:
+        try:
+            print("🔥 Loading SentenceTransformer model...")
+            _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            print("✅ SentenceTransformer loaded successfully")
+        except Exception as e:
+            print(f"❌ Error loading SentenceTransformer: {e}")
+            _embedder = False  # Mark as failed
+    return _embedder if _embedder is not False else None
+
+def get_qa_pipeline():
+    """Lazy load QA pipeline only when needed"""
+    global _qa_pipeline
+    if _qa_pipeline is None:
+        try:
+            print("🔥 Loading QA pipeline model...")
+            _qa_pipeline = pipeline("question-answering", model="deepset/roberta-base-squad2")
+            print("✅ QA pipeline loaded successfully")
+        except Exception as e:
+            print(f"❌ Error loading QA pipeline: {e}")
+            _qa_pipeline = False  # Mark as failed
+    return _qa_pipeline if _qa_pipeline is not False else None
+
+def get_web_crawler():
+    """Lazy load web crawler only when needed"""
+    global _web_crawler
+    if _web_crawler is None:
+        try:
+            print("🔥 Initializing web crawler...")
+            _web_crawler = MultiSiteCrawler()
+            print("✅ Web crawler initialized")
+        except Exception as e:
+            print(f"❌ Error initializing web crawler: {e}")
+            _web_crawler = False
+    return _web_crawler if _web_crawler is not False else None
+
+def get_elasticsearch():
+    """Lazy load Elasticsearch connection only when needed"""
+    global _es
+    if _es is None:
+        try:
+            print("🔥 Connecting to Elasticsearch...")
+            _es = Elasticsearch([ELASTICSEARCH_HOST], request_timeout=3, max_retries=1)
+            if _es.ping():
+                print("✅ Elasticsearch connected")
+            else:
+                print("⚠️ Elasticsearch not responding")
+                _es = False
+        except Exception as e:
+            print(f"⚠️ Elasticsearch not available: {e}")
+            _es = False
+    return _es if _es is not False else None
+
+def get_minio_client():
+    """Lazy load MinIO client only when needed"""
+    global _minio_client
+    if _minio_client is None:
+        try:
+            print("🔥 Connecting to MinIO...")
+            _minio_client = Minio(
+                MINIO_ENDPOINT,
+                access_key=MINIO_ROOT_USER,
+                secret_key=MINIO_ROOT_PASSWORD,
+                secure=MINIO_SECURE
+            )
+            # Test connection
+            list(_minio_client.list_buckets())
+            print("✅ MinIO client initialized")
+        except Exception as e:
+            print(f"⚠️ MinIO not available: {e}")
+            _minio_client = False
+    return _minio_client if _minio_client is not False else None
 
 # Academic suggestions (from your original code)
 ACADEMIC_SUGGESTIONS = [
@@ -171,6 +261,7 @@ def format_time_elapsed(seconds):
 @lru_cache(maxsize=100)
 def get_paper_preview(paper_id, max_chars=800):
     """Extract preview content from academic paper passages"""
+    minio_client = get_minio_client()
     if not minio_client:
         return "MinIO not available - no preview content"
     
@@ -198,8 +289,15 @@ def get_paper_preview(paper_id, max_chars=800):
         return f"Could not load preview: {str(e)}"
     return "No preview available"
 
-def generate_comprehensive_answer(query, web_results, academic_papers):
+def generate_comprehensive_answer(query, web_results, academic_papers, search_id):
     """Generate AI answer using Mistral API with context from search results"""
+    dashboard_logger.log_stage(
+        search_id, 
+        "ai_processing", 
+        "started",
+        details="Starting AI answer generation with Mistral"
+    )
+    
     try:
         # Prepare context from search results
         context_parts = []
@@ -220,13 +318,32 @@ def generate_comprehensive_answer(query, web_results, academic_papers):
         full_context = "\n\n".join(context_parts)
         
         if not full_context.strip():
+            dashboard_logger.log_error(search_id, "ai_processing", "No sufficient context available")
             return "No sufficient context available to generate a comprehensive answer."
+        
+        dashboard_logger.log_stage(
+            search_id, 
+            "ai_processing", 
+            "processing",
+            context_length=len(full_context),
+            details=f"Processing context ({len(full_context)} chars) with Mistral"
+        )
         
         # Call Mistral API
         ai_response = call_mistral(query, full_context)
+        
+        dashboard_logger.log_stage(
+            search_id, 
+            "ai_processing", 
+            "completed",
+            word_count=len(ai_response.split()),
+            details=f"Generated {len(ai_response.split())} word response"
+        )
+        
         return ai_response
         
     except Exception as e:
+        dashboard_logger.log_error(search_id, "ai_processing", str(e))
         return f"Error generating AI answer: {str(e)}"
 
 def get_smart_suggestions(query, suggestions_list, max_results=5):
@@ -282,18 +399,31 @@ def get_suggestions():
 
 @app.route('/api/search', methods=['POST'])
 def search():
-    """Main search API endpoint using all your existing services"""
+    """Enhanced search API endpoint with comprehensive dashboard logging"""
     data = request.get_json()
     query = data.get('query', '').strip()
     
-    if not query:
-        return jsonify({'error': 'No query provided'}), 400
-    
+    # Generate unique search ID
+    search_id = f"search_{int(time.time()*1000)}_{random.randint(1000,9999)}"
     search_start_time = time.time()
     
-    # Initialize results
+    # Log search initiation to dashboard
+    dashboard_logger.log_search_event(
+        "search_start", 
+        search_id,
+        query=query,
+        stage="query_received",
+        user_agent=request.headers.get('User-Agent', 'Unknown'),
+        ip_address=request.remote_addr
+    )
+
+    if not query:
+        dashboard_logger.log_error(search_id, "validation", "Empty query provided")
+        return jsonify({'error': 'No query provided'}), 400
+    
     results = {
         'query': query,
+        'search_id': search_id,
         'timestamp': datetime.now().isoformat(),
         'web_results': [],
         'academic_papers': [],
@@ -301,154 +431,190 @@ def search():
         'ai_answer': '',
         'search_time': 0,
         'total_results': 0,
-        'service_status': {
-            'web_crawler': bool(web_crawler),
-            'elasticsearch': bool(es),
-            'minio': bool(minio_client),
-            'mistral_ai': mistral_available and bool(call_mistral)
-        }
+        'service_status': {}
     }
-    
+
     try:
-        # === WEB SEARCH using your MultiSiteCrawler ===
+        # Track service status
+        services = {
+            'web_crawler': False,
+            'elasticsearch': False,
+            'minio': False,
+            'mistral_ai': False
+        }
+
+        # === WEB SEARCH ===
+        dashboard_logger.log_stage(search_id, "web_search", "started")
+        
+        web_crawler = get_web_crawler()
+        services['web_crawler'] = web_crawler is not None
+        
         if web_crawler:
             try:
-                print(f"🔍 Starting web search for: {query}")
+                web_search_start = time.time()
                 web_results = web_crawler.search_web(query)
-                # Clean and format web results
+                web_search_time = time.time() - web_search_start
+                
                 formatted_web_results = []
                 for result in web_results:
                     formatted_result = {
                         'title': result.get('title', 'Untitled'),
                         'url': result.get('url', ''),
                         'snippet': clean_html_snippet(result.get('snippet', '')),
-                        'description': clean_html_snippet(result.get('description', '')),
                         'source': result.get('source', 'Web')
                     }
                     formatted_web_results.append(formatted_result)
                 
                 results['web_results'] = formatted_web_results
-                print(f"✅ Web search completed: {len(formatted_web_results)} results")
+                
+                dashboard_logger.log_stage(
+                    search_id, 
+                    "web_search", 
+                    "completed",
+                    results_count=len(formatted_web_results),
+                    search_time=round(web_search_time, 3),
+                    details=f"Found {len(formatted_web_results)} web results in {web_search_time:.2f}s"
+                )
+                
             except Exception as e:
-                print(f"❌ Web search error: {e}")
+                dashboard_logger.log_error(search_id, "web_search", str(e))
                 results['web_results'] = []
+
+        # === ACADEMIC SEARCH ===
+        dashboard_logger.log_stage(search_id, "academic_search", "started")
         
-        # === ACADEMIC PAPERS SEARCH using Elasticsearch ===
+        es = get_elasticsearch()
+        services['elasticsearch'] = es is not None
+        
         if es:
             try:
-                print(f"📚 Starting academic search for: {query}")
+                es_search_start = time.time()
                 es_result = es.search(index="academic-papers", query={
                     "multi_match": {
                         "query": query,
                         "fields": ["title^3", "abstract^2", "content", "authors"],
-                        "type": "best_fields",
                         "fuzziness": "AUTO"
                     }
                 }, size=10)
+                es_search_time = time.time() - es_search_start
                 
                 academic_papers = []
                 for hit in es_result['hits']['hits']:
                     paper = hit['_source']
                     paper_data = {
-                        'title': paper.get('title', 'Untitled Paper'),
-                        'authors': paper.get('authors', 'Unknown Authors'),
+                        'title': paper.get('title'),
+                        'authors': paper.get('authors', 'Unknown'),
                         'abstract': paper.get('abstract', '')[:500] + ('...' if len(paper.get('abstract', '')) > 500 else ''),
-                        'year': paper.get('year', 'Unknown'),
-                        'pdf_path': paper.get('pdf_path', ''),
-                        'score': round(hit['_score'], 2),
-                        'preview': get_paper_preview(hit['_id'])
+                        'year': paper.get('year'),
+                        'score': round(hit['_score'], 2)
                     }
                     academic_papers.append(paper_data)
                 
                 results['academic_papers'] = academic_papers
-                print(f"✅ Academic search completed: {len(academic_papers)} papers found")
-            except Exception as e:
-                print(f"❌ Academic search error: {e}")
-                results['academic_papers'] = []
-        else:
-            print("⚠️  Elasticsearch not available - academic search skipped")
-            results['academic_papers'] = []
-        
-        # === PASSAGE SEARCH using MinIO (if available) ===
-        if minio_client:
-            try:
-                print(f"📄 Searching passages for: {query}")
-                # This would be your passage search logic
-                # For now, we'll include preview data from academic papers
-                passages_data = []
-                for paper in results['academic_papers'][:5]:
-                    if paper.get('preview') and paper['preview'] != "No preview available":
-                        passages_data.append({
-                            'text': paper['preview'],
-                            'source': paper['title'],
-                            'relevance': paper['score']
-                        })
                 
-                results['passages'] = passages_data
-                print(f"✅ Passage search completed: {len(passages_data)} passages")
-            except Exception as e:
-                print(f"❌ Passage search error: {e}")
-                results['passages'] = []
-        else:
-            print("⚠️  MinIO not available - passage search skipped")
-            results['passages'] = []
-        
-        # === AI ANSWER GENERATION using Mistral ===
-        if mistral_available and call_mistral:
-            try:
-                print(f"🤖 Generating AI answer for: {query}")
-                ai_answer = generate_comprehensive_answer(
-                    query, 
-                    results['web_results'], 
-                    results['academic_papers']
+                dashboard_logger.log_stage(
+                    search_id, 
+                    "academic_search", 
+                    "completed",
+                    results_count=len(academic_papers),
+                    search_time=round(es_search_time, 3),
+                    total_hits=es_result['hits']['total']['value'] if isinstance(es_result['hits']['total'], dict) else es_result['hits']['total'],
+                    details=f"Found {len(academic_papers)} academic papers in {es_search_time:.2f}s"
                 )
-                results['ai_answer'] = ai_answer
-                print("✅ AI answer generated successfully")
+                
             except Exception as e:
-                print(f"❌ AI answer error: {e}")
-                results['ai_answer'] = "AI answer generation temporarily unavailable. Please check your Mistral API configuration."
-        else:
-            print("⚠️  Mistral AI not available - skipping AI answer generation")
-            results['ai_answer'] = "AI answer generation is not available. Please configure your Mistral API key in the .env file to enable this feature."
+                dashboard_logger.log_error(search_id, "academic_search", str(e))
+                results['academic_papers'] = []
+
+        # === AI ANSWER GENERATION ===
+        services['mistral_ai'] = mistral_available and bool(call_mistral)
         
-        # Calculate totals and timing
-        results['total_results'] = (
-            len(results['web_results']) + 
-            len(results['academic_papers']) + 
-            len(results['passages'])
-        )
+        if services['mistral_ai']:
+            try:
+                results['ai_answer'] = generate_comprehensive_answer(
+                    query, 
+                    results['web_results'],
+                    results['academic_papers'],
+                    search_id
+                )
+            except Exception as e:
+                dashboard_logger.log_error(search_id, "ai_processing", str(e))
+                results['ai_answer'] = "AI answer generation failed"
+
+        # === FINALIZE RESULTS ===
+        results['total_results'] = sum([
+            len(results['web_results']),
+            len(results['academic_papers']),
+            len(results.get('passages', []))
+        ])
         results['search_time'] = round(time.time() - search_start_time, 2)
-        
-        print(f"🎉 Search completed in {results['search_time']}s - {results['total_results']} total results")
+        results['service_status'] = services
+
+        # Log search completion
+        dashboard_logger.log_search_event(
+            "search_complete",
+            search_id,
+            total_results=results['total_results'],
+            total_time=results['search_time'],
+            services_used=[k for k, v in services.items() if v],
+            query_terms=len(query.split()),
+            has_ai_answer=bool(results.get('ai_answer'))
+        )
+
         return jsonify(results)
-    
+
     except Exception as e:
-        print(f"💥 Search failed: {str(e)}")
+        dashboard_logger.log_search_event(
+            "search_failed",
+            search_id,
+            error=str(e),
+            total_time=round(time.time() - search_start_time, 2)
+        )
+        
         return jsonify({
             'error': f'Search failed: {str(e)}',
             'query': query,
-            'service_status': results.get('service_status', {})
+            'search_id': search_id,
+            'service_status': services
         }), 500
 
 @app.route('/api/status')
 def get_status():
-    """Get status of all services"""
+    """Get status of all services including dashboard connectivity"""
+    dashboard_connected = redis_conn is not None
+    
+    if dashboard_connected:
+        try:
+            redis_conn.ping()
+            dashboard_status = "connected"
+        except:
+            dashboard_status = "connection_lost"
+            dashboard_connected = False
+    else:
+        dashboard_status = "not_available"
+    
     return jsonify({
         'status': 'running',
         'timestamp': datetime.now().isoformat(),
+        'dashboard_integration': {
+            'enabled': dashboard_connected,
+            'status': dashboard_status,
+            'redis_host': REDIS_HOST,
+            'redis_port': REDIS_PORT
+        },
         'services': {
             'web_crawler': {
-                'available': bool(web_crawler),
-                'status': 'ready' if web_crawler else 'not available'
+                'available': get_web_crawler() is not None,
+                'status': 'ready' if get_web_crawler() else 'not available'
             },
             'elasticsearch': {
-                'available': bool(es),
-                'status': 'connected' if es else 'not available',
+                'available': get_elasticsearch() is not None,
+                'status': 'connected' if get_elasticsearch() else 'not available',
                 'host': ELASTICSEARCH_HOST
             },
             'minio': {
-                'available': bool(minio_client),
-                'status': 'connected' if minio_client else 'not available',
+                'available': get_minio_client() is not None,
+                'status': 'connected' if get_minio_client() else 'not available',
                 'endpoint': MINIO_ENDPOINT
             },
             'mistral_ai': {
@@ -456,24 +622,74 @@ def get_status():
                 'status': 'ready' if (mistral_available and call_mistral) else 'not available'
             },
             'ai_models': {
-                'available': bool(embedder) and bool(qa_pipeline),
-                'status': 'loaded' if (embedder and qa_pipeline) else 'not loaded'
+                'available': get_embedder() is not None and get_qa_pipeline() is not None,
+                'status': 'loaded' if (get_embedder() and get_qa_pipeline()) else 'not loaded'
             }
         },
         'features': {
-            'web_search': bool(web_crawler),
-            'academic_search': bool(es),
-            'passage_search': bool(minio_client),
+            'web_search': get_web_crawler() is not None,
+            'academic_search': get_elasticsearch() is not None,
+            'passage_search': get_minio_client() is not None,
             'ai_answers': mistral_available and bool(call_mistral),
-            'auto_suggestions': True  # Always available
+            'auto_suggestions': True,  # Always available
+            'dashboard_monitoring': dashboard_connected
         }
     })
 
 @app.route('/api/history')
 def get_search_history():
-    """Get search history (you can implement with a database or session storage)"""
-    # For now, return empty - you can implement with SQLite or session storage
-    return jsonify({'history': []})
+    """Get search history from Redis if available"""
+    if not redis_conn:
+        return jsonify({'history': [], 'error': 'Dashboard not connected'})
+    
+    try:
+        # Get recent search events from Redis stream
+        stream_data = redis_conn.xrevrange("search_stream", count=50)
+        
+        history = []
+        for stream_id, fields in stream_data:
+            if fields.get('event') == 'search_start':
+                history.append({
+                    'search_id': fields.get('search_id'),
+                    'query': fields.get('query'),
+                    'timestamp': fields.get('timestamp'),
+                    'ip_address': fields.get('ip_address', 'Unknown')
+                })
+        
+        return jsonify({'history': history})
+        
+    except Exception as e:
+        return jsonify({'history': [], 'error': f'Failed to fetch history: {str(e)}'})
+
+@app.route('/api/dashboard/trigger_test', methods=['POST'])
+def trigger_dashboard_test():
+    """Trigger a test search for dashboard demonstration"""
+    if not redis_conn:
+        return jsonify({'error': 'Dashboard not connected'}), 503
+    
+    data = request.get_json() or {}
+    test_query = data.get('query', 'machine learning algorithms')
+    
+    # Create a test search event
+    search_id = f"test_search_{int(time.time()*1000)}"
+    
+    dashboard_logger.log_search_event(
+        "search_start",
+        search_id,
+        query=test_query,
+        stage="test_initiated",
+        source="dashboard_trigger"
+    )
+    
+    return jsonify({
+        'message': 'Test search event sent to dashboard',
+        'search_id': search_id,
+        'query': test_query
+    })
+
+# Remove automatic initialization - only initialize when needed!
+print("✅ Enhanced Flask app ready with dashboard integration")
+print(f"📊 Dashboard logging: {'Enabled' if redis_conn else 'Disabled (Redis not available)'}")
 
 if __name__ == '__main__':
     # Create templates and static directories if they don't exist

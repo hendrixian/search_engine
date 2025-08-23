@@ -2,16 +2,26 @@ import httpx
 import os
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 
+def get_mistral_api_key():
+    """Get Mistral API key from environment with better error handling"""
+    key = os.getenv("MISTRAL_API_KEY")
+    if not key:
+        # Try alternative environment variable names
+        key = os.getenv("MISTRAL_KEY") or os.getenv("mistral_api_key")
+    
+    if not key:
+        print("❌ MISTRAL_API_KEY environment variable not set")
+        print("Available env vars:", [k for k in os.environ.keys() if 'mistral' in k.lower()])
+        raise ValueError("MISTRAL_API_KEY environment variable not set")
+    
+    print("✅ Mistral API key loaded successfully")
+    return key
 
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")  # Set this in your environment
-MISTRAL_MODEL = "mistral-small"  # Change to "mistral-medium" or "mistral-large" if you have access
-
-if not MISTRAL_API_KEY:
-    raise ValueError("MISTRAL_API_KEY environment variable not set")
+MISTRAL_API_KEY = get_mistral_api_key()
+MISTRAL_MODEL = "mistral-small"
 
 @retry(wait=wait_random_exponential(multiplier=1, min=4, max=10), 
       stop=stop_after_attempt(3))
-
 def call_mistral(question, context):
     system_prompt = (
         "You are an academic assistant. Answer clearly, using only the context provided below. "

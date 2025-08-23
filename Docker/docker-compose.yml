@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
@@ -10,6 +8,11 @@ services:
       - "9200:9200"
     networks:
       - docker_academic-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   minio:
     image: minio/minio
@@ -24,46 +27,105 @@ services:
       - minio-data:/data
     networks:
       - docker_academic-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
 
-  searchapp:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - docker_academic-net
+
+  search-api:
     build: 
       context: ../
       dockerfile: Docker/Dockerfile
-    container_name: academic-search-app
+    container_name: academic-search-api
     ports:
-      - "8501:8501"
+      - "5000:5000"
     depends_on:
-      - elasticsearch
-      - minio
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     volumes:
       - ./model_cache:/root/.cache/huggingface
     env_file:
       - .env
-    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true
+    environment:
+      - FLASK_APP=flask_app.py
+      - FLASK_ENV=production
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200  # Fixed: Added http://
+      - MINIO_ENDPOINT=minio:9000
+      - REDIS_URL=redis://redis:6379
+    # FIXED: Reduced workers and increased timeout
+    command: gunicorn --bind 0.0.0.0:5000 --workers 2 --threads 4 --timeout 120 --preload wsgi:app
+    networks:
+      - docker_academic-net
+    restart: unless-stopped
+    # FIXED: Add memory limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  search-ui:
+    build:
+      context: ../
+      dockerfile: Docker/Dockerfile
+    container_name: academic-search-ui
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../../templates:/app/templates:ro
+      - ../../static:/app/static:ro
+    environment:
+      - API_BASE_URL=http://search-api:5000
+      - FLASK_ENV=development
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+    command: >
+      sh -c "cd /app &&
+      gunicorn --bind 0.0.0.0:8080 --workers 1 flask_app:app"
+    depends_on:
+      - search-api
     networks:
       - docker_academic-net
 
-  academic-search-monitor:
+
+  monitor:
     build: 
       context: ../
       dockerfile: Docker/Dockerfile
     container_name: academic-search-monitor
     ports:
-      - "8502:8502"
+      - "5001:5001"
+    env_file:
+      - .env  # Add this line - monitor was missing env_file
     environment:
-      - ELASTICSEARCH_HOST=${ELASTICSEARCH_HOST}
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-      - MINIO_SECURE=false
-      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
-      - STREAMLIT_SERVER_PORT=8502
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}  # Add this line
+      - FLASK_APP=monitor/dashboard.py
+      - FLASK_ENV=production
+      - REDIS_URL=redis://redis:6379
+    command: >
+      sh -c "cd /app &&
+      gunicorn --bind 0.0.0.0:5001 --workers 1 --timeout 120 monitor.dashboard:app"
     volumes:
       - ./model_cache:/root/.cache/huggingface
     depends_on:
-      - elasticsearch
-      - minio
-    command: streamlit run monitor/dashboard.py
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - docker_academic-net
     restart: unless-stopped

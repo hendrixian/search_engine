@@ -6,8 +6,18 @@ import nltk
 import os
 import re
 
-nltk.download('punkt', download_dir='/usr/share/nltk_data')
-nltk.data.path.append('/usr/share/nltk_data')
+# === NLTK Setup ===
+nltk_data_path = os.getenv("NLTK_DATA", "/app/nltk_data")
+os.makedirs(nltk_data_path, exist_ok=True)
+
+# Download once if not already available
+try:
+    nltk.data.find("tokenizers/punkt")
+except LookupError:
+    nltk.download("punkt", download_dir=nltk_data_path)
+
+# Ensure nltk can find it
+nltk.data.path.append(nltk_data_path)
 
 # === Configuration ===
 MINIO_URL = "minio:9000"
@@ -56,16 +66,15 @@ for obj in objects:
             doc = fitz.open(tmp_file.name)
             full_text = "\n".join([page.get_text() for page in doc])
 
-            # Clean text:
+            # Clean text
             full_text = re.sub(r'-\s*\n\s*', '', full_text)  # fix hyphenated line breaks
-            full_text = re.sub(r'\n+', '\n\n', full_text)    # normalize to double newlines for paragraphs
-            full_text = re.sub(r'[ \t]+', ' ', full_text)   # normalize spaces and tabs
+            full_text = re.sub(r'\n+', '\n\n', full_text)    # normalize to double newlines
+            full_text = re.sub(r'[ \t]+', ' ', full_text)    # normalize spaces and tabs
 
-        # Split into paragraphs and filter short ones
+        # Split into paragraphs and filter
         paragraphs = [p.strip() for p in full_text.split("\n\n") if len(p.strip().split()) >= MIN_PARAGRAPH_WORDS]
 
         passages = []
-        # Create overlapping passages from paragraphs
         for i in range(0, len(paragraphs), STEP):
             chunk_paras = paragraphs[i:i + WINDOW_SIZE]
             if not chunk_paras:
@@ -78,7 +87,6 @@ for obj in objects:
                     "text": combined_text
                 })
 
-        # Save and upload JSON if we have passages
         if passages:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as json_file:
                 json.dump(passages, json_file, indent=2)

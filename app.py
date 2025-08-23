@@ -1209,7 +1209,7 @@ if total_search_time > 0:
             st.metric("📚 Academic Sources", len(passages))
 
 st.markdown("*💡 **Search Tips:** Use specific technical terms, combine concepts, or ask direct questions. Click Search button or click suggestions.*")
-    st.markdown("*🔄 **Auto-Search:** All sources are automatically searched in parallel for comprehensive results*")
+st.markdown("*🔄 **Auto-Search:** All sources are automatically searched in parallel for comprehensive results*")
 
 # System status
 if st.checkbox("🔧 System Status", key="system_status"):

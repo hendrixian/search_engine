@@ -1,22 +1,41 @@
-streamlit==1.46.0
-elasticsearch==8.13.0
-pandas==2.3.0
-pyspark==4.0.0
-minio==7.2.15
-nltk==3.9.1
-PyMuPDF==1.26.3
-httpx==0.28.1
-transformers==4.53.1
-sentence-transformers==5.0.0
-sentencepiece
-numpy==1.26.4
-torch==2.2.2+cpu 
--f https://download.pytorch.org/whl/torch_stable.html
-requests
-beautifulsoup4
-lxml
-urllib3
-python-dotenv
-tenacity
-psutil
-plotly
+# ===== Core Web Framework =====
+Flask==2.3.3               # Main web framework for the application
+Werkzeug==2.3.7           # WSGI utility library for Flask
+python-dotenv==1.0.1      # Environment variable management
+
+# ===== Database/Storage Clients =====
+elasticsearch==8.13.0     # Elasticsearch Python client
+minio==7.2.15             # MinIO Python SDK for object storage
+pyspark==4.0.0            # Spark integration (if needed for large-scale processing)
+
+# ===== AI/ML Core Libraries =====
+torch==2.2.2+cpu          # PyTorch (CPU version) - Base DL framework
+transformers==4.53.1      # HuggingFace transformers library
+sentence-transformers==5.0.0  # Sentence embedding models
+sentencepiece==0.2.0      # Tokenizer for transformer models
+
+# ===== Data Processing =====
+pandas==2.3.0             # Data manipulation and analysis
+numpy==1.26.4             # Numerical computing
+nltk==3.9.1               # Natural Language Toolkit (text processing)
+PyMuPDF==1.26.3           # PDF text extraction (for academic papers)
+
+# ===== Web Scraping & HTTP =====
+beautifulsoup4==4.12.3    # HTML parsing for web scraping
+lxml==4.9.3               # Fast XML/HTML parser
+html5lib==1.1             # HTML parser (alternative to lxml)
+httpx==0.28.1             # Async HTTP client
+requests==2.31.0          # Synchronous HTTP requests
+urllib3==2.2.1            # URL handling (dependency for requests)
+
+# ===== Utilities =====
+tenacity==8.2.3           # Retry library for robust operations
+psutil==5.9.6             # System monitoring/process management
+plotly==5.18.0            # Interactive visualizations (optional)
+
+# ===== Development/Debugging =====
+gunicorn==21.2.0          # Production WSGI server
+gevent==23.9.1            # Async worker for Gunicorn
+
+redis
+flask-sse
