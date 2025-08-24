@@ -1,4 +1,4 @@
-# Enhanced flask_app.py with dashboard integration
+# Enhanced flask_app.py with Milvus vector database integration
 from flask import Flask, render_template, request, jsonify
 import time
 import json
@@ -31,6 +31,16 @@ except ImportError as e:
     print(f"Warning: Some core modules not found: {e}")
     print("Please ensure all required modules are installed and available.")
 
+# Import Milvus vector database manager
+try:
+    from database.milvus_manager import MilvusVectorManager
+    milvus_available = True
+    print("✅ Milvus vector database module imported successfully")
+except ImportError as e:
+    print(f"⚠️ Milvus not available: {e}")
+    MilvusVectorManager = None
+    milvus_available = False
+
 # Import Mistral separately (optional)
 try:
     from mistral import call_mistral
@@ -60,6 +70,10 @@ MINIO_ROOT_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 
+# Milvus configuration
+MILVUS_HOST = os.getenv("MILVUS_HOST", "milvus-standalone")
+MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
+
 # Model cache directories
 MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR", "./models")
 os.environ["TRANSFORMERS_CACHE"] = MODEL_CACHE_DIR
@@ -71,6 +85,7 @@ _qa_pipeline = None
 _web_crawler = None
 _es = None
 _minio_client = None
+_milvus_manager = None
 
 # Redis connection for dashboard integration
 try:
@@ -211,6 +226,26 @@ def get_minio_client():
             _minio_client = False
     return _minio_client if _minio_client is not False else None
 
+def get_milvus_manager():
+    """Lazy load Milvus vector database manager only when needed"""
+    global _milvus_manager
+    if _milvus_manager is None and milvus_available:
+        try:
+            print("🔥 Connecting to Milvus vector database...")
+            _milvus_manager = MilvusVectorManager(
+                host=MILVUS_HOST,
+                port=MILVUS_PORT
+            )
+            if _milvus_manager.connect():
+                print("✅ Milvus vector database connected")
+            else:
+                print("⚠️ Milvus connection failed")
+                _milvus_manager = False
+        except Exception as e:
+            print(f"⚠️ Milvus not available: {e}")
+            _milvus_manager = False
+    return _milvus_manager if _milvus_manager is not False else None
+
 # Academic suggestions (from your original code)
 ACADEMIC_SUGGESTIONS = [
     "machine learning algorithms", "deep learning neural networks", "natural language processing",
@@ -258,39 +293,45 @@ def format_time_elapsed(seconds):
     else:
         return f"About {seconds:.1f} seconds"
 
-@lru_cache(maxsize=100)
-def get_paper_preview(paper_id, max_chars=800):
-    """Extract preview content from academic paper passages"""
-    minio_client = get_minio_client()
-    if not minio_client:
-        return "MinIO not available - no preview content"
+def get_paper_preview_from_milvus(paper_id, max_chars=800):
+    """Get paper preview from Milvus vector database instead of MinIO buckets"""
+    milvus_manager = get_milvus_manager()
+    if not milvus_manager:
+        return "Milvus vector database not available - no preview content"
     
     try:
-        objects = minio_client.list_objects("passages")
-        for obj in objects:
-            if obj.object_name.endswith(".json") and paper_id in obj.object_name:
-                resp = minio_client.get_object("passages", obj.object_name)
-                buffer = io.BytesIO()
-                for chunk in resp.stream(32 * 1024):
-                    buffer.write(chunk)
-                buffer.seek(0)
-                data = json.load(buffer)
-                
-                # Get first meaningful passage
-                for passage in data:
-                    text = passage.get("text", "").strip()
-                    if len(text) > 100:  # Skip very short passages
-                        # Clean and truncate
-                        preview = text.replace("\n", " ").strip()
-                        if len(preview) > max_chars:
-                            preview = preview[:max_chars] + "..."
-                        return preview
+        # Search for passages from this specific paper
+        # Use a broad query to get any passage from the paper
+        results = milvus_manager.collection.query(
+            expr=f'paper_id == "{paper_id}"',
+            output_fields=["passage_text", "page_number", "passage_index"],
+            limit=1
+        )
+        
+        if results:
+            # Get the first passage as preview
+            passage_text = results[0].get('passage_text', '')
+            if passage_text:
+                # Clean and truncate
+                preview = passage_text.replace("\n", " ").strip()
+                if len(preview) > max_chars:
+                    preview = preview[:max_chars] + "..."
+                return preview
+        
+        return "No preview available for this paper"
+        
     except Exception as e:
         return f"Could not load preview: {str(e)}"
-    return "No preview available"
 
-def generate_comprehensive_answer(query, web_results, academic_papers, search_id):
-    """Generate AI answer using Mistral API with context from search results"""
+# DEPRECATED: This function is replaced by Milvus vector search
+@lru_cache(maxsize=100)
+def get_paper_preview(paper_id, max_chars=800):
+    """DEPRECATED: Extract preview content from academic paper passages in MinIO"""
+    # This function is kept for backward compatibility but should use Milvus instead
+    return get_paper_preview_from_milvus(paper_id, max_chars)
+
+def generate_comprehensive_answer(query, web_results, academic_papers, passages, search_id):
+    """Generate AI answer using Mistral API with context from search results including vector passages"""
     dashboard_logger.log_stage(
         search_id, 
         "ai_processing", 
@@ -314,6 +355,13 @@ def generate_comprehensive_answer(query, web_results, academic_papers, search_id
             abstract = paper.get('abstract', '')
             context_parts.append(f"Academic Paper {i+1}: {title}\n{abstract}")
         
+        # Add vector search passages context (NEW)
+        for i, passage in enumerate(passages[:5]):  # Top 5 most similar passages
+            title = passage.get('title', 'No title')
+            text = passage.get('text', '')
+            similarity = passage.get('similarity_score', 0)
+            context_parts.append(f"Relevant Passage {i+1} (Similarity: {similarity:.2f}): {title}\n{text[:500]}...")
+        
         # Combine context
         full_context = "\n\n".join(context_parts)
         
@@ -326,7 +374,8 @@ def generate_comprehensive_answer(query, web_results, academic_papers, search_id
             "ai_processing", 
             "processing",
             context_length=len(full_context),
-            details=f"Processing context ({len(full_context)} chars) with Mistral"
+            passage_count=len(passages),
+            details=f"Processing context ({len(full_context)} chars) with {len(passages)} vector passages"
         )
         
         # Call Mistral API
@@ -399,7 +448,7 @@ def get_suggestions():
 
 @app.route('/api/search', methods=['POST'])
 def search():
-    """Enhanced search API endpoint with comprehensive dashboard logging"""
+    """Enhanced search API endpoint with Milvus vector search integration"""
     data = request.get_json()
     query = data.get('query', '').strip()
     
@@ -427,7 +476,7 @@ def search():
         'timestamp': datetime.now().isoformat(),
         'web_results': [],
         'academic_papers': [],
-        'passages': [],
+        'passages': [],  # Now from Milvus vector search
         'ai_answer': '',
         'search_time': 0,
         'total_results': 0,
@@ -440,6 +489,7 @@ def search():
             'web_crawler': False,
             'elasticsearch': False,
             'minio': False,
+            'milvus': False,
             'mistral_ai': False
         }
 
@@ -526,6 +576,57 @@ def search():
                 dashboard_logger.log_error(search_id, "academic_search", str(e))
                 results['academic_papers'] = []
 
+        # === MILVUS VECTOR SEARCH (NEW) ===
+        dashboard_logger.log_stage(search_id, "vector_search", "started")
+        
+        milvus_manager = get_milvus_manager()
+        services['milvus'] = milvus_manager is not None
+        
+        if milvus_manager:
+            try:
+                vector_search_start = time.time()
+                
+                # Perform semantic vector search
+                vector_passages = milvus_manager.search_passages(
+                    query=query,
+                    limit=15,
+                    similarity_threshold=0.6
+                )
+                
+                vector_search_time = time.time() - vector_search_start
+                
+                # Format passages for response
+                formatted_passages = []
+                for passage in vector_passages:
+                    formatted_passage = {
+                        'id': passage.get('id'),
+                        'text': passage.get('text', '')[:800] + ('...' if len(passage.get('text', '')) > 800 else ''),
+                        'title': passage.get('title', 'Untitled'),
+                        'authors': passage.get('authors', 'Unknown'),
+                        'year': passage.get('year', 'Unknown'),
+                        'page_number': passage.get('page_number', 0),
+                        'similarity_score': round(passage.get('similarity_score', 0), 3),
+                        'paper_id': passage.get('paper_id', ''),
+                        'source': 'Vector Search'
+                    }
+                    formatted_passages.append(formatted_passage)
+                
+                results['passages'] = formatted_passages
+                
+                dashboard_logger.log_stage(
+                    search_id, 
+                    "vector_search", 
+                    "completed",
+                    results_count=len(formatted_passages),
+                    search_time=round(vector_search_time, 3),
+                    avg_similarity=round(sum(p.get('similarity_score', 0) for p in vector_passages) / len(vector_passages), 3) if vector_passages else 0,
+                    details=f"Found {len(formatted_passages)} semantically similar passages in {vector_search_time:.2f}s"
+                )
+                
+            except Exception as e:
+                dashboard_logger.log_error(search_id, "vector_search", str(e))
+                results['passages'] = []
+
         # === AI ANSWER GENERATION ===
         services['mistral_ai'] = mistral_available and bool(call_mistral)
         
@@ -535,6 +636,7 @@ def search():
                     query, 
                     results['web_results'],
                     results['academic_papers'],
+                    results['passages'],  # Now includes vector search results
                     search_id
                 )
             except Exception as e:
@@ -558,7 +660,8 @@ def search():
             total_time=results['search_time'],
             services_used=[k for k, v in services.items() if v],
             query_terms=len(query.split()),
-            has_ai_answer=bool(results.get('ai_answer'))
+            has_ai_answer=bool(results.get('ai_answer')),
+            vector_passages=len(results.get('passages', []))
         )
 
         return jsonify(results)
@@ -580,7 +683,7 @@ def search():
 
 @app.route('/api/status')
 def get_status():
-    """Get status of all services including dashboard connectivity"""
+    """Get status of all services including Milvus vector database"""
     dashboard_connected = redis_conn is not None
     
     if dashboard_connected:
@@ -592,6 +695,18 @@ def get_status():
             dashboard_connected = False
     else:
         dashboard_status = "not_available"
+    
+    # Check Milvus status
+    milvus_manager = get_milvus_manager()
+    milvus_status = "not_available"
+    milvus_stats = {}
+    
+    if milvus_manager:
+        try:
+            milvus_stats = milvus_manager.get_collection_stats()
+            milvus_status = "connected" if milvus_stats.get('status') == 'healthy' else "error"
+        except:
+            milvus_status = "connection_error"
     
     return jsonify({
         'status': 'running',
@@ -617,6 +732,13 @@ def get_status():
                 'status': 'connected' if get_minio_client() else 'not available',
                 'endpoint': MINIO_ENDPOINT
             },
+            'milvus': {
+                'available': milvus_manager is not None,
+                'status': milvus_status,
+                'host': MILVUS_HOST,
+                'port': MILVUS_PORT,
+                'stats': milvus_stats
+            },
             'mistral_ai': {
                 'available': mistral_available and bool(call_mistral),
                 'status': 'ready' if (mistral_available and call_mistral) else 'not available'
@@ -629,12 +751,60 @@ def get_status():
         'features': {
             'web_search': get_web_crawler() is not None,
             'academic_search': get_elasticsearch() is not None,
-            'passage_search': get_minio_client() is not None,
+            'vector_search': milvus_manager is not None,  # NEW
+            'passage_search': milvus_manager is not None,  # UPDATED: Now uses Milvus instead of MinIO
             'ai_answers': mistral_available and bool(call_mistral),
             'auto_suggestions': True,  # Always available
             'dashboard_monitoring': dashboard_connected
         }
     })
+
+@app.route('/api/milvus/stats')
+def get_milvus_stats():
+    """Get detailed Milvus vector database statistics"""
+    milvus_manager = get_milvus_manager()
+    
+    if not milvus_manager:
+        return jsonify({'error': 'Milvus not available'}), 503
+    
+    try:
+        stats = milvus_manager.get_collection_stats()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': f'Failed to get Milvus stats: {str(e)}'}), 500
+
+@app.route('/api/upload/passages', methods=['POST'])
+def upload_passages_to_milvus():
+    """
+    API endpoint to upload passages to Milvus vector database
+    This replaces the MinIO bucket storage approach
+    """
+    milvus_manager = get_milvus_manager()
+    
+    if not milvus_manager:
+        return jsonify({'error': 'Milvus vector database not available'}), 503
+    
+    try:
+        data = request.get_json()
+        passages = data.get('passages', [])
+        
+        if not passages:
+            return jsonify({'error': 'No passages provided'}), 400
+        
+        # Upload to Milvus
+        success = milvus_manager.add_passages(passages)
+        
+        if success:
+            return jsonify({
+                'message': f'Successfully uploaded {len(passages)} passages to Milvus',
+                'passages_count': len(passages),
+                'status': 'success'
+            })
+        else:
+            return jsonify({'error': 'Failed to upload passages to Milvus'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 @app.route('/api/history')
 def get_search_history():
@@ -688,13 +858,15 @@ def trigger_dashboard_test():
     })
 
 # Remove automatic initialization - only initialize when needed!
-print("✅ Enhanced Flask app ready with dashboard integration")
+print("✅ Enhanced Flask app ready with Milvus vector database integration")
 print(f"📊 Dashboard logging: {'Enabled' if redis_conn else 'Disabled (Redis not available)'}")
+print(f"🔍 Vector search: {'Enabled' if milvus_available else 'Disabled (Milvus not available)'}")
 
 if __name__ == '__main__':
     # Create templates and static directories if they don't exist
     os.makedirs('templates', exist_ok=True)
     os.makedirs('static/css', exist_ok=True)
     os.makedirs('static/js', exist_ok=True)
+    os.makedirs('database', exist_ok=True)
     
     app.run(debug=True, host='0.0.0.0', port=5000)
