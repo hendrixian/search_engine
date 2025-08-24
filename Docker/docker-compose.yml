@@ -13,6 +13,10 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    cpus: 2.0        # max CPU
+    mem_limit: 4G    # hard memory limit
+    mem_reservation: 2G   # soft memory reservation
+
 
   minio:
     image: minio/minio
@@ -25,13 +29,83 @@ services:
       - "9001:9001"
     volumes:
       - minio-data:/data
+    env_file:
+      - .env
     networks:
       - docker_academic-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
+      timeout: 10s
+      retries: 3
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 512M
+
+  # Milvus Vector Database Components
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+      - ETCD_HEARTBEAT_INTERVAL=500
+      - ETCD_ELECTION_TIMEOUT=5000
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380
+      - ETCD_INITIAL_CLUSTER=default=http://etcd:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_INITIAL_CLUSTER_TOKEN=etcd-cluster
+    volumes:
+      - etcd:/var/lib/etcd
+    networks:
+      - docker_academic-net
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 512M
+
+  milvus-standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.4.9
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - milvus:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - docker_academic-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
       timeout: 20s
       retries: 3
+    cpus: 1.5
+    mem_limit: 4G
+    mem_reservation: 2G
 
   redis:
     image: redis:alpine
@@ -39,6 +113,9 @@ services:
       - "6379:6379"
     networks:
       - docker_academic-net
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 512M
 
   search-api:
     build: 
@@ -52,6 +129,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      milvus-standalone:
+        condition: service_healthy
     volumes:
       - ./model_cache:/root/.cache/huggingface
     env_file:
@@ -59,21 +138,18 @@ services:
     environment:
       - FLASK_APP=flask_app.py
       - FLASK_ENV=production
-      - ELASTICSEARCH_HOST=http://elasticsearch:9200  # Fixed: Added http://
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
       - MINIO_ENDPOINT=minio:9000
+      - MILVUS_HOST=milvus-standalone
+      - MILVUS_PORT=19530
       - REDIS_URL=redis://redis:6379
-    # FIXED: Reduced workers and increased timeout
-    command: gunicorn --bind 0.0.0.0:5000 --workers 2 --threads 4 --timeout 120 --preload wsgi:app
+    command: gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 2 --timeout 120 --preload wsgi:app
     networks:
       - docker_academic-net
     restart: unless-stopped
-    # FIXED: Add memory limits
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 1G
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 512M
 
   search-ui:
     build:
@@ -96,7 +172,10 @@ services:
       - search-api
     networks:
       - docker_academic-net
-
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 512M
+    
 
   monitor:
     build: 
@@ -106,13 +185,15 @@ services:
     ports:
       - "5001:5001"
     env_file:
-      - .env  # Add this line - monitor was missing env_file
+      - .env
     environment:
       - ELASTICSEARCH_HOST=http://elasticsearch:9200
       - MINIO_ENDPOINT=minio:9000
+      - MILVUS_HOST=milvus-standalone
+      - MILVUS_PORT=19530
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY}  # Add this line
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - FLASK_APP=monitor/dashboard.py
       - FLASK_ENV=production
       - REDIS_URL=redis://redis:6379
@@ -126,12 +207,20 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      milvus-standalone:
+        condition: service_healthy
     networks:
       - docker_academic-net
     restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 512M
+
 
 volumes:
   minio-data:
+  etcd:
+  milvus:
 
 networks:
   docker_academic-net:
