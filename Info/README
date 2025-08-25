@@ -2,7 +2,7 @@
 
 This project is a full-stack academic paper and web content search engine built with Streamlit, Elasticsearch, MinIO, and PySpark. It allows you to preprocess and index academic papers, crawl technical web sources (e.g. GeeksforGeeks, MathWorld), and generate AI-powered answers using integrated LLMs.
 
-## Features
+## Features (Still needs to be updated)
 
 - **Automatic PDF Processing:** Extracts paragraphs and passages from academic PDFs.
 - **Preprocessing:** Cleans and prepares paper abstracts using PySpark.
@@ -12,14 +12,21 @@ This project is a full-stack academic paper and web content search engine built 
 - **Web Crawling:** Fetches articles from websites using custom crawlers.
 - **Smart Auto-Suggestions:** Intelligent search suggestions with academic focus and search history.
 
+## Architecture
+- **Frontend**: HTML5, CSS3, JavaScript (Vanilla)
+- **Backend**: Flask (Python)
+- **Search Engine**: Elasticsearch
+- **Object Storage**: MinIO
+- **AI Models**: Sentence Transformers, Hugging Face Transformers
+- **AI API**: Mistral AI
+- **Web Crawlers**: Custom MultiSiteCrawler
+- **Containerization**: Docker & Docker Compose
+- **Database** : Milvus
+
 ## Project Structure
 
 ```
 .
-├── Docker
-    ├── .env
-    ├── docker-compose.yml
-    ├── Dockerfile
 ├── crawlers
     ├── base_engine.py
     ├── crawl.py
@@ -27,12 +34,46 @@ This project is a full-stack academic paper and web content search engine built 
     ├── geeksforgeeks.py
     ├── mathworld.py
     ├── multi_crawler.py
+├── database
+    ├── milvus_manager.py
+├── Docker
+    ├── .env
+    ├── docker-compose.yml
+    ├── Dockerfile
+├── Info
+    ├── .gitignore
+    ├── README
+├── monitor
+    ├── dashboard.py
+    ├── run_dashboard.py
+├── scripts
+    ├── migrate_passages_to_milvus.py
+    ├── setup_milvus_integration.sh
+├── static
+    ├── css
+        ├── style.css
+        ├── README
+    ├── js
+        ├── search.js
+├── templates
+    ├── debug_suggestions.html
+    ├── index.html
+├── .dockerignore
+├── .gitignore
 ├── app.py           # Streamlit web app for searching papers
+├── check_milvus.py  # To check collections in Milvus
+├── flask_app.py     # Flask app (the main one)
+├── FLASK_SETUP.md
 ├── index.py         # Indexes papers into Elasticsearch
+├── mc.exe
+├── mistral.py
+├── papers.csv
 ├── preprocess.py    # Preprocesses paper data with PySpark
-├── papers.csv       # CSV file with academic paper data
 ├── process_passages.py     # CSV file with academic paper data
+├── README_FLASK.md
 ├── requirements.txt # Python dependencies
+├── run_flask.py
+├── wsgi.py
 ```
 
 ## Setup Instructions
@@ -49,7 +90,8 @@ Open a terminal in **VS Code**, navigate to your project directory, and run:
 docker compose -f Docker\docker-compose.yml up --build
 ```
 
-This will start all necessary services including MinIO, Elasticsearch, and your Streamlit app. Wait until everything is fully built and running.
+This will start all necessary services including MinIO, Elasticsearch, and your app container. Wait until everything is fully built and running.
+
 
 ### 3. Upload PDFs to MinIO
 
@@ -92,14 +134,51 @@ preprocess.py: cleans raw text (e.g. abstracts).
 process_passages.py: extracts and stores text passages from PDFs.
 index.py: indexes metadata and file info into Elasticsearch.
 
-### 6. Use the Search Engine
+### 7. Integrate Milvus
+
+Create a new terminal and set up Milvus
+
+```sh
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\setup_milvus_integration.sh
+```
+
+Inside the same (bin/bash) container as before
+
+```sh
+python scripts/migrate_passages_to_milvus.py --batch-size 100
+```
+
+
+### 8. Use the Search Engine
 
 Once all scripts have completed:
 
-    Go to the Streamlit web interface (URL shown in your terminal, usually http://localhost:8501)
+    Go to http://127.0.0.1:5000/ for search engine
     Use the search bar to explore academic papers by entering keywords in metadata and ask any related questions
+    Go to http://127.0.0.1:5001/ for monitor dashboard
 
-## Auto-Suggestions Feature
+
+## Debugging
+Check if all containers are running. If so, the following line shows all the containers defined in docker-compose.yml
+```sh
+docker ps
+```
+
+Check how each container taking up CPUs and memory
+```sh
+docker stats
+```
+Check Milvus Collections
+
+Outside docker container 
+
+```sh
+python check_milvus.py
+```
+
+
+## Auto-Suggestions Feature (Needs to be updated)
 
 ### How It Works
 
