@@ -199,7 +199,7 @@ class MilvusVectorManager:
             logger.error(f"❌ Failed to add passages to Milvus: {e}")
             return False
     
-    def search_passages(self, query: str, limit: int = 10, similarity_threshold: float = 0.7) -> List[Dict[str, Any]]:
+    def search_passages(self, query: str, limit: int = 10, similarity_threshold: float = 0.5) -> List[Dict[str, Any]]:
         """
         Search for similar passages using vector similarity
         

@@ -929,13 +929,13 @@ if query and (st.session_state.get('search_triggered', False) or st.session_stat
                 query_embedding = embedder.encode(query, convert_to_tensor=True)
                 scores = util.cos_sim(query_embedding, passage_embeddings)[0]
                 
-                # Get top results with higher limit
-                top_k = 12
+                # Get top results with much higher limit
+                top_k = 20  # Increased from 12 to 20 for more comprehensive context
                 top_indices = torch.topk(scores, k=min(top_k, len(all_texts))).indices.tolist()
                 
-                # Build comprehensive context
+                # Build comprehensive context with larger token limit
                 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf",token=token)                
-                max_tokens = 1500
+                max_tokens = 3500  # Increased from 1500 to 3500
                 context = ""
                 included_sources = []
                 
@@ -956,9 +956,9 @@ if query and (st.session_state.get('search_triggered', False) or st.session_stat
                 embedding_time = time.time() - embedding_start
                 st.write(f"✅ Context tokens so far: {len(tokenizer.encode(context))}")
 
-                # Generate comprehensive answer
+                # Generate comprehensive answer with significantly increased token limit
                 mistral_start = time.time()
-                answer = call_mistral(query, context)
+                answer = call_mistral(query, context, max_tokens=2560)  # Further increased for richer responses
                 mistral_time = time.time() - mistral_start
                 
                 total_ai_time = time.time() - ai_start_time

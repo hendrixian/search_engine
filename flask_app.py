@@ -343,24 +343,28 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
         # Prepare context from search results
         context_parts = []
         
-        # Add web results context
-        for i, result in enumerate(web_results[:3]):  # Top 3 web results
+        # Add web results context (increased to 8 for maximum coverage)
+        for i, result in enumerate(web_results[:8]):
             title = result.get('title', 'No title')
             snippet = clean_html_snippet(result.get('snippet', ''))
-            context_parts.append(f"Web Result {i+1}: {title}\n{snippet}")
+            context_parts.append(f"Web Source {i+1}: {title}\n{snippet}")
         
-        # Add academic papers context
-        for i, paper in enumerate(academic_papers[:3]):  # Top 3 papers
+        # Add academic papers context (increased to 8 for comprehensive academic coverage)
+        for i, paper in enumerate(academic_papers[:8]):
             title = paper.get('title', 'No title')
             abstract = paper.get('abstract', '')
-            context_parts.append(f"Academic Paper {i+1}: {title}\n{abstract}")
+            authors = paper.get('authors', 'Unknown authors')
+            year = paper.get('year', 'Unknown year')
+            context_parts.append(f"Academic Paper {i+1}: {title}\nAuthors: {authors} ({year})\nAbstract: {abstract}")
         
-        # Add vector search passages context (NEW)
-        for i, passage in enumerate(passages[:5]):  # Top 5 most similar passages
+        # Add vector search passages context (significantly increased)
+        for i, passage in enumerate(passages[:15]):  # Increased from 8 to 15 for much richer context
             title = passage.get('title', 'No title')
             text = passage.get('text', '')
             similarity = passage.get('similarity_score', 0)
-            context_parts.append(f"Relevant Passage {i+1} (Similarity: {similarity:.2f}): {title}\n{text[:500]}...")
+            # Include more text content for better context (increased from 1000 to 1500)
+            text_excerpt = text[:1500] + "..." if len(text) > 1500 else text
+            context_parts.append(f"Research Passage {i+1} (Similarity: {similarity:.2f}): {title}\n{text_excerpt}")
         
         # Combine context
         full_context = "\n\n".join(context_parts)
@@ -378,8 +382,38 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
             details=f"Processing context ({len(full_context)} chars) with {len(passages)} vector passages"
         )
         
-        # Call Mistral API
-        ai_response = call_mistral(query, full_context)
+        # Advanced AI optimization with multiple techniques and quality selection
+        from mistral import (smart_response_selector, advanced_mistral_call, add_few_shot_examples, 
+                           classify_query_type, get_response_quality_score)
+        
+        # Add few-shot examples to guide the model
+        query_type = classify_query_type(query)
+        few_shot_example = add_few_shot_examples(query_type)
+        final_context = few_shot_example + "\n\n" + full_context
+        
+        # Use smart response selector that tries multiple techniques and picks the best
+        import time
+        ai_start_time = time.time()
+        ai_response, technique_used, quality_score = smart_response_selector(query, final_context, max_tokens=2048)
+        ai_processing_time = time.time() - ai_start_time
+        
+        # Post-process response for better formatting and citations
+        from mistral import post_process_response, add_response_metadata
+        ai_response = post_process_response(ai_response, query, final_context)
+        
+        # Add metadata for transparency (optional - can be disabled)
+        # ai_response = add_response_metadata(ai_response, technique_used, quality_score, ai_processing_time)
+        
+        # Log the technique used and quality score for monitoring
+        dashboard_logger.log_stage(
+            search_id,
+            "ai_technique_selection", 
+            "completed",
+            technique_used=technique_used,
+            quality_score=quality_score,
+            processing_time=round(ai_processing_time, 2),
+            details=f"Used {technique_used} technique with quality score {quality_score}/15 in {ai_processing_time:.2f}s"
+        )
         
         dashboard_logger.log_stage(
             search_id, 
@@ -586,11 +620,11 @@ def search():
             try:
                 vector_search_start = time.time()
                 
-                # Perform semantic vector search
+                # Perform semantic vector search with improved parameters
                 vector_passages = milvus_manager.search_passages(
                     query=query,
-                    limit=15,
-                    similarity_threshold=0.6
+                    limit=50,  # Increased from 25 to 50 for broader coverage
+                    similarity_threshold=0.5  # Lowered from 0.6 to 0.5 for more inclusive results
                 )
                 
                 vector_search_time = time.time() - vector_search_start
