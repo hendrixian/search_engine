@@ -71,7 +71,7 @@
       .search-button {
         width: 100%;
         padding: 15px;
-        background: linear-gradient(135deg, #1a73e8 0%, #34a853 100%);
+        background: #1a73e8;
         color: white;
         border: none;
         border-radius: 24px;
@@ -182,6 +182,218 @@
       }
       .stats strong {
         color: #1a73e8;
+      }
+
+      /* Enhanced AI Answer Styles */
+      .ai-answer-container {
+        background: linear-gradient(135deg, #f8f9ff 0%, #e8f4fd 100%);
+        border: 2px solid #e3f2fd;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 12px rgba(26, 115, 232, 0.1);
+      }
+
+      .ai-answer-content {
+        font-size: 16px;
+        line-height: 1.6;
+        color: #2c3e50;
+        margin-bottom: 15px;
+        white-space: pre-wrap;
+      }
+
+      .ai-confidence {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .confidence-label {
+        font-weight: 600;
+        color: #5f6368;
+      }
+
+      .confidence-score {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .confidence-score.high {
+        background: #e8f5e8;
+        color: #137333;
+        border: 1px solid #34a853;
+      }
+
+      .confidence-score.medium {
+        background: #fef7e0;
+        color: #b06000;
+        border: 1px solid #fbbc04;
+      }
+
+      .confidence-score.low {
+        background: #fce8e6;
+        color: #d33b01;
+        border: 1px solid #ea4335;
+      }
+
+      .ai-processing-info {
+        background: rgba(26, 115, 232, 0.1);
+        color: #1a73e8;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        margin: 5px 0;
+        border-left: 4px solid #1a73e8;
+      }
+
+      /* AI Sources Cards */
+      .ai-sources-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 16px;
+        margin-top: 15px;
+      }
+
+      .source-card {
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+      }
+
+      .source-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+        border-color: #1a73e8;
+      }
+
+      .source-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #f1f3f4;
+      }
+
+      .source-type {
+        background: #f8f9fa;
+        color: #5f6368;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .relevance-score {
+        background: #e8f5e8;
+        color: #137333;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .source-title {
+        font-weight: 600;
+        color: #1a73e8;
+        margin-bottom: 8px;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+
+      .source-content {
+        color: #5f6368;
+        font-size: 13px;
+        line-height: 1.5;
+        margin-bottom: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .source-link {
+        color: #1a73e8;
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        background: #f8f9ff;
+        border-radius: 20px;
+        transition: all 0.2s ease;
+      }
+
+      .source-link:hover {
+        background: #e8f0fe;
+        transform: translateX(2px);
+      }
+
+      /* Processing Details */
+      .processing-details {
+        background: #f8f9fa;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
+        margin-top: 20px;
+      }
+
+      .processing-details h5 {
+        margin: 0 0 10px 0;
+        color: #5f6368;
+        font-size: 14px;
+      }
+
+      .processing-stats {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+
+      .processing-stats span {
+        background: white;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        color: #5f6368;
+        border: 1px solid #e0e0e0;
+      }
+
+      .active-features {
+        font-size: 12px;
+        color: #137333;
+        background: #e8f5e8;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border-left: 4px solid #34a853;
+      }
+
+      /* Responsive adjustments */
+      @media (max-width: 768px) {
+        .ai-sources-container {
+          grid-template-columns: 1fr;
+        }
+
+        .processing-stats {
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .source-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+        }
       }
     </style>
   </head>
@@ -416,8 +628,121 @@
             '<div class="loading">No academic papers found</div>';
         }
 
-        // Display AI answer
-        if (data.ai_answer) {
+        // Display AI answer (enhanced with separated format)
+        if (data.ai_answer && data.ai_answer.content) {
+          let html = `<h3>🤖 Enhanced AI Answer</h3>`;
+
+          // Display AI answer with confidence and processing info
+          html += `<div class="ai-answer-container">`;
+          html += `<div class="ai-answer-content">${data.ai_answer.content}</div>`;
+
+          // Add confidence and processing info if available
+          if (
+            data.ai_answer.confidence_score !== null &&
+            data.ai_answer.confidence_score !== undefined
+          ) {
+            const confidence = Math.round(
+              data.ai_answer.confidence_score * 100
+            );
+            const confidenceClass =
+              confidence >= 80 ? "high" : confidence >= 60 ? "medium" : "low";
+            html += `<div class="ai-confidence">
+              <span class="confidence-label">Confidence:</span>
+              <span class="confidence-score ${confidenceClass}">${confidence}%</span>
+            </div>`;
+          }
+
+          // Add processing info
+          if (data.ai_answer.perspectives_considered > 1) {
+            html += `<div class="ai-processing-info">
+              ✨ Enhanced with ${data.ai_answer.perspectives_considered} perspectives
+            </div>`;
+          }
+
+          if (data.ai_answer.refinement_iterations > 0) {
+            html += `<div class="ai-processing-info">
+              🔄 Refined ${data.ai_answer.refinement_iterations} times for better quality
+            </div>`;
+          }
+
+          html += `</div>`;
+
+          // Display AI sources as cards (like web crawler)
+          if (data.ai_sources && data.ai_sources.length > 0) {
+            html += `<h4>📚 Sources Used by AI (${data.ai_sources.length} sources)</h4>`;
+            html += `<div class="ai-sources-container">`;
+
+            data.ai_sources.forEach((source, index) => {
+              const sourceTypeIcon =
+                {
+                  web: "🌐",
+                  academic: "📚",
+                  vector: "🔍",
+                }[source.source_type] || "📄";
+
+              html += `
+                <div class="source-card">
+                  <div class="source-header">
+                    <span class="source-type">${sourceTypeIcon} ${
+                source.source_type.charAt(0).toUpperCase() +
+                source.source_type.slice(1)
+              }</span>
+                    ${
+                      source.relevance_score
+                        ? `<span class="relevance-score">Relevance: ${Math.round(
+                            source.relevance_score * 100
+                          )}%</span>`
+                        : ""
+                    }
+                  </div>
+                  <div class="source-title">${source.title}</div>
+                  <div class="source-content">${source.content}</div>
+                  ${
+                    source.url
+                      ? `<a href="${source.url}" target="_blank" class="source-link">🔗 View Source</a>`
+                      : ""
+                  }
+                </div>
+              `;
+            });
+
+            html += `</div>`;
+          }
+
+          // Add processing information if available
+          if (data.ai_processing_info) {
+            html += `<div class="processing-details">
+              <h5>🔧 Processing Details</h5>
+              <div class="processing-stats">
+                <span>Sources Available: ${
+                  data.ai_processing_info.total_sources_available || 0
+                }</span>
+                <span>Sources Selected: ${
+                  data.ai_processing_info.sources_selected || 0
+                }</span>
+              </div>`;
+
+            if (data.ai_processing_info.optimization_features_used) {
+              const features =
+                data.ai_processing_info.optimization_features_used;
+              const activeFeatures = Object.entries(features)
+                .filter(([key, value]) => value)
+                .map(([key, value]) => key);
+              if (activeFeatures.length > 0) {
+                html += `<div class="active-features">
+                  <strong>Active Optimizations:</strong> ${activeFeatures.join(
+                    ", "
+                  )}
+                </div>`;
+              }
+            }
+
+            html += `</div>`;
+          }
+
+          aiResults.innerHTML = html;
+        } else if (data.ai_answer && typeof data.ai_answer === "string") {
+          // Legacy format support
           let html = `<h3>🤖 AI Answer</h3>`;
           html += `<div class="result-item"><div class="result-snippet">${data.ai_answer}</div></div>`;
           aiResults.innerHTML = html;
