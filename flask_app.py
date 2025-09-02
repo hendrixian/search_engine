@@ -43,17 +43,25 @@ except ImportError as e:
 
 # Import Mistral separately (optional)
 try:
-    from mistral import call_mistral
+    from mistral import call_mistral, call_mistral_enhanced, enhanced_available
     mistral_available = True
     print("✅ Mistral AI module imported successfully")
+    if enhanced_available:
+        print("✅ Enhanced Mistral AI features available")
+    else:
+        print("⚠️ Enhanced Mistral AI features not available, using legacy mode")
 except ImportError as e:
     print(f"⚠️ Mistral AI not available: {e}")
     call_mistral = None
+    call_mistral_enhanced = None
     mistral_available = False
+    enhanced_available = False
 except ValueError as e:
     print(f"⚠️ Mistral API key not configured: {e}")
     call_mistral = None
+    call_mistral_enhanced = None
     mistral_available = False
+    enhanced_available = False
 
 app = Flask(__name__, template_folder='templates')
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
@@ -331,69 +339,183 @@ def get_paper_preview(paper_id, max_chars=800):
     return get_paper_preview_from_milvus(paper_id, max_chars)
 
 def generate_comprehensive_answer(query, web_results, academic_papers, passages, search_id):
-    """Generate AI answer using Mistral API with context from search results including vector passages"""
+    """
+    Generate enhanced AI answer using advanced optimization features
+    Returns separated AI answer and sources as requested
+    """
     dashboard_logger.log_stage(
         search_id, 
         "ai_processing", 
         "started",
-        details="Starting AI answer generation with Mistral"
+        details="Starting enhanced AI answer generation with optimization features"
     )
     
     try:
-        # Prepare context from search results
-        context_parts = []
+        # Prepare sources in the format expected by enhanced AI
+        all_sources = []
         
-        # Add web results context
-        for i, result in enumerate(web_results[:3]):  # Top 3 web results
-            title = result.get('title', 'No title')
-            snippet = clean_html_snippet(result.get('snippet', ''))
-            context_parts.append(f"Web Result {i+1}: {title}\n{snippet}")
+        # Add web results as sources
+        for result in web_results:
+            source = {
+                'title': result.get('title', 'No title'),
+                'content': clean_html_snippet(result.get('snippet', '')),
+                'url': result.get('url', ''),
+                'source_type': 'web',
+                'relevance_score': 0.8  # Default web relevance
+            }
+            all_sources.append(source)
         
-        # Add academic papers context
-        for i, paper in enumerate(academic_papers[:3]):  # Top 3 papers
-            title = paper.get('title', 'No title')
-            abstract = paper.get('abstract', '')
-            context_parts.append(f"Academic Paper {i+1}: {title}\n{abstract}")
+        # Add academic papers as sources
+        for paper in academic_papers:
+            source = {
+                'title': paper.get('title', 'No title'),
+                'content': paper.get('abstract', ''),
+                'url': paper.get('pdf_path', ''),
+                'source_type': 'academic',
+                'relevance_score': paper.get('score', 0.9)  # Use ES score
+            }
+            all_sources.append(source)
         
-        # Add vector search passages context (NEW)
-        for i, passage in enumerate(passages[:5]):  # Top 5 most similar passages
-            title = passage.get('title', 'No title')
-            text = passage.get('text', '')
-            similarity = passage.get('similarity_score', 0)
-            context_parts.append(f"Relevant Passage {i+1} (Similarity: {similarity:.2f}): {title}\n{text[:500]}...")
+        # Add vector search passages as sources
+        for passage in passages:
+            source = {
+                'title': passage.get('title', 'No title'),
+                'content': passage.get('text', ''),
+                'url': '',  # Vector passages don't have URLs
+                'source_type': 'vector',
+                'relevance_score': passage.get('similarity_score', 0.0)
+            }
+            all_sources.append(source)
         
-        # Combine context
-        full_context = "\n\n".join(context_parts)
-        
-        if not full_context.strip():
-            dashboard_logger.log_error(search_id, "ai_processing", "No sufficient context available")
-            return "No sufficient context available to generate a comprehensive answer."
+        if not all_sources:
+            dashboard_logger.log_error(search_id, "ai_processing", "No sources available for AI processing")
+            return {
+                'ai_answer': {
+                    'content': "No sufficient sources available to generate a comprehensive answer.",
+                    'confidence_score': 0.0,
+                    'processing_time': 0.0,
+                    'validation_passed': False,
+                    'refinement_iterations': 0,
+                    'perspectives_considered': 1
+                },
+                'sources': [],
+                'processing_info': {
+                    'total_sources_available': 0,
+                    'sources_selected': 0,
+                    'error': 'No sources available'
+                }
+            }
         
         dashboard_logger.log_stage(
             search_id, 
             "ai_processing", 
             "processing",
-            context_length=len(full_context),
-            passage_count=len(passages),
-            details=f"Processing context ({len(full_context)} chars) with {len(passages)} vector passages"
+            total_sources=len(all_sources),
+            web_sources=len(web_results),
+            academic_sources=len(academic_papers),
+            vector_sources=len(passages),
+            details=f"Processing {len(all_sources)} total sources with enhanced AI"
         )
         
-        # Call Mistral API
-        ai_response = call_mistral(query, full_context)
+        # Use enhanced AI if available, otherwise fall back to legacy
+        if enhanced_available and call_mistral_enhanced:
+            # Use enhanced AI with all optimization features
+            enhanced_result = call_mistral_enhanced(query, "", all_sources, search_id)
+            
+            dashboard_logger.log_stage(
+                search_id, 
+                "ai_processing", 
+                "completed",
+                enhanced_features_used=True,
+                confidence_score=enhanced_result['ai_answer'].get('confidence_score', 0.0),
+                sources_selected=enhanced_result['processing_info'].get('sources_selected', 0),
+                details=f"Enhanced AI processing completed with {enhanced_result['ai_answer'].get('perspectives_considered', 1)} perspectives"
+            )
+            
+            return enhanced_result
         
-        dashboard_logger.log_stage(
-            search_id, 
-            "ai_processing", 
-            "completed",
-            word_count=len(ai_response.split()),
-            details=f"Generated {len(ai_response.split())} word response"
-        )
-        
-        return ai_response
+        else:
+            # Fall back to legacy mode with separated response format
+            dashboard_logger.log_stage(
+                search_id, 
+                "ai_processing", 
+                "fallback",
+                details="Using legacy AI mode (enhanced features not available)"
+            )
+            
+            # Prepare context for legacy AI
+            context_parts = []
+            for i, source in enumerate(all_sources[:10]):  # Limit for legacy mode
+                context_parts.append(f"{source['source_type'].title()} Source {i+1}: {source['title']}\n{source['content'][:500]}...")
+            
+            full_context = "\n\n".join(context_parts)
+            
+            # Call legacy Mistral API
+            ai_response = call_mistral(query, full_context)
+            
+            # Format legacy response in new separated format
+            formatted_sources = []
+            for source in all_sources[:10]:
+                formatted_source = {
+                    'title': source['title'],
+                    'url': source['url'],
+                    'content': source['content'][:300] + "..." if len(source['content']) > 300 else source['content'],
+                    'source_type': source['source_type'],
+                    'relevance_score': round(source.get('relevance_score', 0.0), 3)
+                }
+                formatted_sources.append(formatted_source)
+            
+            dashboard_logger.log_stage(
+                search_id, 
+                "ai_processing", 
+                "completed",
+                enhanced_features_used=False,
+                word_count=len(ai_response.split()),
+                sources_used=len(formatted_sources),
+                details=f"Legacy AI processing completed with {len(ai_response.split())} words"
+            )
+            
+            return {
+                'ai_answer': {
+                    'content': ai_response,
+                    'confidence_score': 0.7,  # Default confidence for legacy mode
+                    'processing_time': 0.0,
+                    'validation_passed': True,
+                    'refinement_iterations': 0,
+                    'perspectives_considered': 1
+                },
+                'sources': formatted_sources,
+                'processing_info': {
+                    'total_sources_available': len(all_sources),
+                    'sources_selected': len(formatted_sources),
+                    'optimization_features_used': {
+                        'validation': False,
+                        'multi_perspective': False,
+                        'iterative_refinement': False,
+                        'smart_selector': False
+                    },
+                    'legacy_mode': True
+                }
+            }
         
     except Exception as e:
         dashboard_logger.log_error(search_id, "ai_processing", str(e))
-        return f"Error generating AI answer: {str(e)}"
+        return {
+            'ai_answer': {
+                'content': f"Error generating enhanced AI answer: {str(e)}",
+                'confidence_score': 0.0,
+                'processing_time': 0.0,
+                'validation_passed': False,
+                'refinement_iterations': 0,
+                'perspectives_considered': 0
+            },
+            'sources': [],
+            'processing_info': {
+                'total_sources_available': len(all_sources) if 'all_sources' in locals() else 0,
+                'sources_selected': 0,
+                'error': str(e)
+            }
+        }
 
 def get_smart_suggestions(query, suggestions_list, max_results=5):
     """Generate smart suggestions based on query (adapted from your original code)"""
@@ -632,16 +754,32 @@ def search():
         
         if services['mistral_ai']:
             try:
-                results['ai_answer'] = generate_comprehensive_answer(
+                # Generate comprehensive answer with separated format
+                ai_result = generate_comprehensive_answer(
                     query, 
                     results['web_results'],
                     results['academic_papers'],
                     results['passages'],  # Now includes vector search results
                     search_id
                 )
+                
+                # Update results with separated AI answer and sources
+                results['ai_answer'] = ai_result['ai_answer']
+                results['ai_sources'] = ai_result['sources']  # Separated sources for AI answer
+                results['ai_processing_info'] = ai_result['processing_info']
+                
             except Exception as e:
                 dashboard_logger.log_error(search_id, "ai_processing", str(e))
-                results['ai_answer'] = "AI answer generation failed"
+                results['ai_answer'] = {
+                    'content': "AI answer generation failed",
+                    'confidence_score': 0.0,
+                    'processing_time': 0.0,
+                    'validation_passed': False,
+                    'refinement_iterations': 0,
+                    'perspectives_considered': 0
+                }
+                results['ai_sources'] = []
+                results['ai_processing_info'] = {'error': str(e)}
 
         # === FINALIZE RESULTS ===
         results['total_results'] = sum([
