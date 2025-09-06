@@ -677,7 +677,6 @@ def search():
                         'title': paper.get('title'),
                         'authors': paper.get('authors', 'Unknown'),
                         'abstract': paper.get('abstract', '')[:500] + ('...' if len(paper.get('abstract', '')) > 500 else ''),
-                        'year': paper.get('year'),
                         'score': round(hit['_score'], 2)
                     }
                     academic_papers.append(paper_data)

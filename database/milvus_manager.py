@@ -69,6 +69,14 @@ class MilvusVectorManager:
             if utility.has_collection(self.collection_name):
                 logger.info(f"📚 Collection '{self.collection_name}' exists, connecting...")
                 self.collection = Collection(self.collection_name)
+                
+                # Check if schema matches (13 fields means old schema with year)
+                schema = self.collection.schema
+                if len(schema.fields) == 13:  # Old schema with year field
+                    logger.warning(f"⚠️ Old schema detected (13 fields), recreating collection without year field...")
+                    self._recreate_collection()
+                else:
+                    logger.info(f"✅ Schema matches current requirements ({len(schema.fields)} fields)")
             else:
                 logger.info(f"🏗️ Creating new collection '{self.collection_name}'...")
                 self._create_collection()
@@ -92,7 +100,6 @@ class MilvusVectorManager:
             FieldSchema(name="passage_index", dtype=DataType.INT64),
             FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=512),
             FieldSchema(name="authors", dtype=DataType.VARCHAR, max_length=1024),
-            FieldSchema(name="year", dtype=DataType.INT64),
             FieldSchema(name="category", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="abstract", dtype=DataType.VARCHAR, max_length=2048),
             FieldSchema(name="file_path", dtype=DataType.VARCHAR, max_length=512),
@@ -120,6 +127,21 @@ class MilvusVectorManager:
         self.collection.create_index("embedding", index_params)
         logger.info("✅ Collection created with HNSW index")
     
+    def _recreate_collection(self):
+        """Drop and recreate the collection with new schema"""
+        try:
+            logger.warning(f"🗑️ Dropping existing collection '{self.collection_name}'...")
+            utility.drop_collection(self.collection_name)
+            logger.info(f"✅ Collection '{self.collection_name}' dropped")
+            
+            # Create new collection with updated schema
+            logger.info(f"🏗️ Creating new collection '{self.collection_name}' with updated schema...")
+            self._create_collection()
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to recreate collection: {e}")
+            raise
+    
     def add_passages(self, passages_data: List[Dict[str, Any]]) -> bool:
         """
         Add passages to Milvus vector database
@@ -144,7 +166,6 @@ class MilvusVectorManager:
             passage_indices = []
             titles = []
             authors_list = []
-            years = []
             categories = []
             abstracts = []
             file_paths = []
@@ -165,7 +186,6 @@ class MilvusVectorManager:
                 passage_indices.append(i)
                 titles.append(passage.get('title', '')[:511])
                 authors_list.append(passage.get('authors', '')[:1023])
-                years.append(passage.get('year', 0))
                 categories.append(passage.get('category', 'unknown')[:99])
                 abstracts.append(passage.get('abstract', '')[:2047])
                 file_paths.append(passage.get('file_path', '')[:511])
@@ -183,7 +203,7 @@ class MilvusVectorManager:
             
             entities = [
                 ids, paper_ids, passage_texts, embeddings, page_numbers,
-                passage_indices, titles, authors_list, years, categories,
+                passage_indices, titles, authors_list, categories,
                 abstracts, file_paths, created_ats
             ]
             
@@ -233,7 +253,7 @@ class MilvusVectorManager:
                 limit=limit,
                 output_fields=[
                     "paper_id", "passage_text", "page_number", "passage_index",
-                    "title", "authors", "year", "category", "abstract", "file_path"
+                    "title", "authors", "category", "abstract", "file_path"
                 ]
             )
             
@@ -312,7 +332,7 @@ class MilvusVectorManager:
         
         Args:
             query: Search query
-            filters: Dictionary of filters (year, category, etc.)
+            filters: Dictionary of filters (category, etc.)
             limit: Maximum results
             
         Returns:
@@ -323,10 +343,6 @@ class MilvusVectorManager:
             filter_expr = None
             if filters:
                 filter_conditions = []
-                if 'year_min' in filters:
-                    filter_conditions.append(f"year >= {filters['year_min']}")
-                if 'year_max' in filters:
-                    filter_conditions.append(f"year <= {filters['year_max']}")
                 if 'category' in filters:
                     filter_conditions.append(f'category == "{filters["category"]}"')
                 
@@ -350,7 +366,7 @@ class MilvusVectorManager:
                 expr=filter_expr,
                 output_fields=[
                     "paper_id", "passage_text", "page_number", "title", 
-                    "authors", "year", "category", "abstract"
+                    "authors", "category", "abstract"
                 ]
             )
             

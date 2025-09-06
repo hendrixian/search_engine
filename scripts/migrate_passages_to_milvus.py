@@ -176,7 +176,6 @@ class PassageMigrator:
                 'passage_index': passage_index,
                 'title': passage.get('title', 'Unknown Title')[:511],
                 'authors': passage.get('authors', 'Unknown Authors')[:1023],
-                'year': int(passage.get('year', 0)) if passage.get('year') else 0,
                 'category': passage.get('category', 'unknown')[:99],
                 'abstract': passage.get('abstract', '')[:2047],
                 'file_path': file_path[:511],

@@ -31,7 +31,6 @@ for _, row in papers.iterrows():
     doc = {
         "title": row["title"],
         "authors": row["authors"],
-        "year": int(row["year"]),
         "abstract": row["abstract"],
         "pdf_path": minio_url
     }

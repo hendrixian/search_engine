@@ -390,11 +390,6 @@ class SearchEngine {
                           paper.authors || "Unknown Authors"
                         }
                     </span>
-                    <span class="result-year">
-                        <i class="fas fa-calendar"></i> ${
-                          paper.year || "Unknown Year"
-                        }
-                    </span>
                     <span class="result-score">
                         <i class="fas fa-star"></i> Relevance: ${(
                           paper.score || 0

@@ -12,6 +12,6 @@ df_clean = df.withColumn("abstract_clean", lower(regexp_replace("abstract", "[^a
 df_clean.show(truncate=False)
 
 # Collect to driver for indexing
-papers = df_clean.select("id", "title", "authors", "year", "abstract_clean", "pdf_path").toPandas()
+papers = df_clean.select("id", "title", "authors", "abstract_clean", "pdf_path").toPandas()
 
 spark.stop()
