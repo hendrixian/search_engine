@@ -9,14 +9,14 @@ services:
     networks:
       - docker_academic-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      test:
+        ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-    cpus: 2.0        # max CPU
-    mem_limit: 4G    # hard memory limit
-    mem_reservation: 2G   # soft memory reservation
-
+    cpus: 2.0 # max CPU
+    mem_limit: 4G # hard memory limit
+    mem_reservation: 2G # soft memory reservation
 
   minio:
     image: minio/minio
@@ -24,6 +24,10 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Webhook configuration for PDF auto-extraction
+      MINIO_NOTIFY_WEBHOOK_ENABLE_1: "on"
+      MINIO_NOTIFY_WEBHOOK_ENDPOINT_1: "http://pdf-processor:5002/webhook/minio"
+      MINIO_NOTIFY_WEBHOOK_AUTH_TOKEN_1: ""
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -117,8 +121,57 @@ services:
     mem_limit: 1G
     mem_reservation: 512M
 
+  # PDF Auto-Extraction Processor Service
+  pdf-processor:
+    build:
+      context: ../
+      dockerfile: Docker/Dockerfile
+    container_name: pdf-processor
+    ports:
+      - "5002:5002"
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - ../papers.csv:/app/papers.csv
+      - /tmp:/tmp
+    env_file:
+      - .env
+    environment:
+      - FLASK_APP=pdf_processor_service.py
+      - FLASK_ENV=production
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    command: python pdf_processor_service.py
+    networks:
+      - docker_academic-net
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 512M
+
+  # MinIO Setup for PDF Auto-Extraction
+  minio-setup:
+    image: minio/mc:latest
+    container_name: minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - docker_academic-net
+    entrypoint: >
+      /bin/sh -c "
+      sleep 15;
+      /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc mb minio/papers --ignore-existing;
+      /usr/bin/mc event add minio/papers arn:minio:sqs::1:webhook --event put --suffix .pdf;
+      echo 'MinIO PDF auto-extraction setup completed!';
+      "
+    restart: "no"
+
   search-api:
-    build: 
+    build:
       context: ../
       dockerfile: Docker/Dockerfile
     container_name: academic-search-api
@@ -151,34 +204,9 @@ services:
     mem_limit: 1G
     mem_reservation: 512M
 
-  search-ui:
-    build:
-      context: ../
-      dockerfile: Docker/Dockerfile
-    container_name: academic-search-ui
-    ports:
-      - "8080:8080"
-    volumes:
-      - ../../templates:/app/templates:ro
-      - ../../static:/app/static:ro
-    environment:
-      - API_BASE_URL=http://search-api:5000
-      - FLASK_ENV=development
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
-    command: >
-      sh -c "cd /app &&
-      gunicorn --bind 0.0.0.0:8080 --workers 1 flask_app:app"
-    depends_on:
-      - search-api
-    networks:
-      - docker_academic-net
-    cpus: 0.5
-    mem_limit: 1G
-    mem_reservation: 512M
-    
 
   monitor:
-    build: 
+    build:
       context: ../
       dockerfile: Docker/Dockerfile
     container_name: academic-search-monitor
@@ -215,7 +243,6 @@ services:
     cpus: 0.5
     mem_limit: 1G
     mem_reservation: 512M
-
 
 volumes:
   minio-data:

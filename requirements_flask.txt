@@ -20,3 +20,11 @@ minio==7.2.0
 # Additional utilities
 lxml==4.9.3
 html5lib==1.1
+
+# PDF processing libraries
+PyMuPDF==1.23.8
+pdfplumber==0.10.3
+
+# Redis for dashboard (optional)
+redis==5.0.1
+flask-sse==1.0
