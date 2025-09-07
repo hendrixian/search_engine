@@ -8,7 +8,7 @@ Werkzeug==2.3.7
 # AI and ML libraries
 sentence-transformers==2.2.2
 transformers==4.35.0
-torch==2.1.0
+torch==2.2.2
 
 # API libraries
 httpx==0.25.2

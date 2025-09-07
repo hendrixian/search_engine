@@ -119,7 +119,7 @@ This sets up the alias for your local MinIO instance and makes the papers bucket
 Open second terminal
 
 ```sh
-docker exec -it academic-search-app /bin/bash
+docker exec -it academic-search-api /bin/bash
 ```
 
 Inside the container, run the following scripts one by one:
