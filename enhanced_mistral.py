@@ -50,8 +50,40 @@ class EnhancedMistralAI:
         self.model = "mistral-small"
         self.base_url = "https://api.mistral.ai/v1/chat/completions"
         
+    def _validate_messages(self, messages: List[Dict]) -> bool:
+        """Validate messages structure before sending to API"""
+        if not messages:
+            logger.error("Empty messages list")
+            return False
+        
+        for i, message in enumerate(messages):
+            if not isinstance(message, dict):
+                logger.error(f"Message {i} is not a dictionary: {message}")
+                return False
+            
+            if "role" not in message:
+                logger.error(f"Message {i} missing 'role' field: {message}")
+                return False
+                
+            if "content" not in message:
+                logger.error(f"Message {i} missing 'content' field: {message}")
+                return False
+                
+            if not isinstance(message["role"], str):
+                logger.error(f"Message {i} role is not string: {message['role']}")
+                return False
+                
+            if not isinstance(message["content"], str):
+                logger.error(f"Message {i} content is not string: {message['content']}")
+                return False
+        
+        return True
+
     def _make_api_call(self, messages: List[Dict], **kwargs) -> Dict:
         """Make a call to Mistral API with error handling"""
+         # Validate messages first
+        if not self._validate_messages(messages):
+            raise ValueError("Invalid messages structure")
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -61,17 +93,41 @@ class EnhancedMistralAI:
         params = self.config.get_mistral_params(kwargs.get('perspective_index', 0))
         params.update(kwargs)  # Override with any passed parameters
         
+        # Ensure messages are properly formatted
+        sanitized_messages = []
+        for message in messages:
+            sanitized_message = {
+                "role": str(message.get("role", "user")),
+                "content": str(message.get("content", ""))
+            }
+            sanitized_messages.append(sanitized_message)
+        
         body = {
             "model": self.model,
-            "messages": messages,
+            "messages": sanitized_messages,
             "stream": False,
             **params
         }
         
+        # Debug logging to see what's being sent
+        logger.debug(f"Sending to Mistral API: {json.dumps(body, indent=2)[:1000]}...")
+        
         try:
             response = httpx.post(self.base_url, json=body, headers=headers, timeout=60)
+            
+            # Log the response for debugging
+            logger.debug(f"Mistral API response status: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"Mistral API error {response.status_code}: {response.text}")
+                
             response.raise_for_status()
             return response.json()
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Mistral API HTTP error: {e}")
+            logger.error(f"Response text: {e.response.text}")
+            raise
         except Exception as e:
             logger.error(f"Mistral API error: {e}")
             raise
@@ -294,6 +350,23 @@ class EnhancedMistralAI:
         # Return the highest scoring response
         return max(responses, key=lambda r: r.confidence_score)
     
+    def _sanitize_context(self, context: str) -> str:
+        """Sanitize context to prevent JSON and API issues"""
+        if not context:
+            return ""
+        
+        # Remove problematic characters
+        context = context.replace('\x00', '')  # Remove null bytes
+        context = context.replace('\ufffd', '')  # Remove replacement characters
+        
+        # Ensure valid UTF-8
+        context = context.encode('utf-8', 'ignore').decode('utf-8')
+        
+        # Remove excessive whitespace
+        context = ' '.join(context.split())
+        
+        return context
+
     def generate_enhanced_answer(self, query: str, sources: List[Dict], search_id: str = None) -> Dict[str, Any]:
         """
         Generate enhanced AI answer with all optimization features
@@ -319,9 +392,11 @@ class EnhancedMistralAI:
         # Prepare context from selected sources
         context_parts = []
         for i, source in enumerate(selected_sources):
-            context_parts.append(f"Source {i+1} ({source.source_type}): {source.title}\n{source.content[:800]}...")
+            sanitized_content = self._sanitize_context(source.content)
+            context_parts.append(f"Source {i+1} ({source.source_type}): {source.title}\n{sanitized_content[:800]}...")
         
         context = "\n\n".join(context_parts)
+        context = self._sanitize_context(context)  # Final sanitization
         
         # Track processing steps
         reasoning_steps = []

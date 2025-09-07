@@ -15,6 +15,9 @@ import httpx
 import redis
 from flask_sse import sse
 import random
+import queue
+from datetime import datetime, timedelta
+import threading
 
 # Load environment variables
 load_dotenv()
@@ -122,15 +125,24 @@ class DashboardLogger:
             return
             
         try:
+            # Convert all values to strings for Redis compatibility
             event_data = {
-                "event": event_type,
-                "search_id": search_id,
+                "event": str(event_type),
+                "search_id": str(search_id),
                 "timestamp": datetime.now().isoformat(),
-                **kwargs
             }
+            
+            # Add kwargs with proper string conversion
+            for key, value in kwargs.items():
+                if isinstance(value, (bool, list, dict)):
+                    # Convert complex types to JSON strings
+                    event_data[key] = json.dumps(value)
+                else:
+                    event_data[key] = str(value)
+            
             self.redis.xadd("search_stream", event_data)
             
-            # Also publish to pub/sub for real-time updates
+            # Also publish to pub/sub for real-time updates (convert to JSON string)
             self.redis.publish("search_events", json.dumps(event_data))
             
         except Exception as e:
@@ -138,12 +150,20 @@ class DashboardLogger:
     
     def log_stage(self, search_id, stage, status, **details):
         """Log a specific search stage"""
+        # Convert details values to strings
+        string_details = {}
+        for key, value in details.items():
+            if isinstance(value, (bool, list, dict)):
+                string_details[key] = json.dumps(value)
+            else:
+                string_details[key] = str(value)
+                
         self.log_search_event(
             "search_stage",
             search_id,
             stage=stage,
             status=status,
-            **details
+            **string_details
         )
     
     def log_error(self, search_id, stage, error):
@@ -347,6 +367,7 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
         search_id, 
         "ai_processing", 
         "started",
+        query=query,
         details="Starting enhanced AI answer generation with optimization features"
     )
     
@@ -414,6 +435,7 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
             web_sources=len(web_results),
             academic_sources=len(academic_papers),
             vector_sources=len(passages),
+            query=query,
             details=f"Processing {len(all_sources)} total sources with enhanced AI"
         )
         
@@ -429,6 +451,7 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
                 enhanced_features_used=True,
                 confidence_score=enhanced_result['ai_answer'].get('confidence_score', 0.0),
                 sources_selected=enhanced_result['processing_info'].get('sources_selected', 0),
+                query=query,
                 details=f"Enhanced AI processing completed with {enhanced_result['ai_answer'].get('perspectives_considered', 1)} perspectives"
             )
             
@@ -440,6 +463,7 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
                 search_id, 
                 "ai_processing", 
                 "fallback",
+                query,
                 details="Using legacy AI mode (enhanced features not available)"
             )
             
@@ -472,6 +496,7 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
                 enhanced_features_used=False,
                 word_count=len(ai_response.split()),
                 sources_used=len(formatted_sources),
+                query=query,
                 details=f"Legacy AI processing completed with {len(ai_response.split())} words"
             )
             
@@ -645,6 +670,7 @@ def search():
                     "completed",
                     results_count=len(formatted_web_results),
                     search_time=round(web_search_time, 3),
+                    query=query,
                     details=f"Found {len(formatted_web_results)} web results in {web_search_time:.2f}s"
                 )
                 
@@ -690,6 +716,7 @@ def search():
                     "completed",
                     results_count=len(academic_papers),
                     search_time=round(es_search_time, 3),
+                    query=query,
                     total_hits=es_result['hits']['total']['value'] if isinstance(es_result['hits']['total'], dict) else es_result['hits']['total'],
                     details=f"Found {len(academic_papers)} academic papers in {es_search_time:.2f}s"
                 )
@@ -741,6 +768,7 @@ def search():
                     "completed",
                     results_count=len(formatted_passages),
                     search_time=round(vector_search_time, 3),
+                    query= query,
                     avg_similarity=round(sum(p.get('similarity_score', 0) for p in vector_passages) / len(vector_passages), 3) if vector_passages else 0,
                     details=f"Found {len(formatted_passages)} semantically similar passages in {vector_search_time:.2f}s"
                 )
@@ -994,6 +1022,62 @@ def trigger_dashboard_test():
         'search_id': search_id,
         'query': test_query
     })
+@app.route('/api/test_dashboard_integration', methods=['POST'])
+def test_dashboard_integration():
+    """Test endpoint to verify dashboard integration"""
+    if not redis_conn:
+        return jsonify({'error': 'Redis not connected'}), 503
+    
+    try:
+        # Test Redis connection
+        redis_conn.ping()
+        
+        # Send test event
+        test_search_id = f"test_{int(time.time() * 1000)}"
+        
+        dashboard_logger.log_search_event(
+            "search_start",
+            test_search_id,
+            query="Integration test query",
+            stage="test_initiated",
+            source="test_endpoint",
+            ip_address="127.0.0.1"
+        )
+        
+        # Send test stage updates
+        stages = ["web_search", "academic_search", "vector_search", "ai_processing"]
+        for i, stage in enumerate(stages):
+            dashboard_logger.log_stage(
+                test_search_id,
+                stage,
+                "completed",
+                details=f"Test {stage} completed",
+                results_count=random.randint(5, 20),
+                search_time=random.uniform(0.5, 2.0)
+            )
+        
+        # Send completion
+        dashboard_logger.log_search_event(
+            "search_complete",
+            test_search_id,
+            query="Integration test query",
+            total_time=5.5,
+            total_results=45
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Test events sent to dashboard',
+            'test_search_id': test_search_id,
+            'redis_status': 'connected'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'redis_status': 'error'
+        }), 500
 
 # Remove automatic initialization - only initialize when needed!
 print("✅ Enhanced Flask app ready with Milvus vector database integration")
@@ -1008,3 +1092,4 @@ if __name__ == '__main__':
     os.makedirs('database', exist_ok=True)
     
     app.run(debug=True, host='0.0.0.0', port=5000)
+
