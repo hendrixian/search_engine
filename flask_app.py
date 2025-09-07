@@ -15,6 +15,7 @@ import httpx
 import redis
 from flask_sse import sse
 import random
+import threading
 
 # Load environment variables
 load_dotenv()
@@ -62,6 +63,33 @@ except ValueError as e:
     call_mistral_enhanced = None
     mistral_available = False
     enhanced_available = False
+
+# Import auto_upload's main function
+try:
+    from auto_upload import main as auto_upload_main
+    print("✅ Auto-upload module imported successfully")
+except ImportError as e:
+    print(f"⚠️ Auto-upload module not found: {e}")
+    auto_upload_main = None
+
+# === Background Auto-Upload (Scheduled every 60s) ===
+def background_auto_upload():
+    """Triggers the auto-upload process on a schedule."""
+    while True:
+        try:
+            print("🔄 Background: Checking for new PDFs to upload...")
+            if auto_upload_main:
+                auto_upload_main()
+                print("✅ Background: Auto-upload cycle finished.")
+            else:
+                print("⚠️ Auto-upload module not available, skipping.")
+        except Exception as e:
+            print(f"❌ Background Auto-Upload error: {e}")
+        
+        time.sleep(60)  # Wait 60 seconds before next cycle
+
+# Start background threads
+threading.Thread(target=background_auto_upload, daemon=True).start()
 
 app = Flask(__name__, template_folder='templates')
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
@@ -677,7 +705,6 @@ def search():
                         'title': paper.get('title'),
                         'authors': paper.get('authors', 'Unknown'),
                         'abstract': paper.get('abstract', '')[:500] + ('...' if len(paper.get('abstract', '')) > 500 else ''),
-                        'year': paper.get('year'),
                         'score': round(hit['_score'], 2)
                     }
                     academic_papers.append(paper_data)
