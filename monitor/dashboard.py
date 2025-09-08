@@ -49,6 +49,7 @@ REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
 app = Flask(__name__)
 app.config['REDIS_URL'] = 'redis://redis:6379'  # or from environment
 app.register_blueprint(sse, url_prefix='/stream')
+app.sse_queue = queue.Queue()
 
 # Global state (replace st.session_state)
 STATE_LOCK = threading.Lock()
@@ -109,43 +110,9 @@ def init_connections():
 
 es, minio_client = init_connections()
 
-
 # Helper: serialize timestamps
 def now_iso():
     return datetime.now().isoformat()
-
-class ImprovedFlaskEventListener:
-    def __init__(self, redis_client):
-        self.redis = redis_client
-        self.running = False
-        self.pubsub_thread = None
-        self.stream_thread = None
-        
-    def start(self):
-        if not self.redis or self.running:
-            return
-        
-        self.running = True
-        
-        # Start pub/sub listener for real-time events
-        self.pubsub_thread = threading.Thread(target=self._pubsub_loop, daemon=True)
-        self.pubsub_thread.start()
-        
-        # Start stream reader for historical events
-        self.stream_thread = threading.Thread(target=self._stream_loop, daemon=True)
-        self.stream_thread.start()
-        
-        print("Started listening for Flask app events (pub/sub + stream)")
-        
-    def stop(self):
-        self.running = False
-        if self.pubsub_thread:
-            self.pubsub_thread.join(timeout=2)
-        if self.stream_thread:
-            self.stream_thread.join(timeout=2)
-    
-    # Replace your ImprovedFlaskEventListener class with this improved version:
-
 class ImprovedFlaskEventListener:
     def __init__(self, redis_client):
         self.redis = redis_client
@@ -316,19 +283,32 @@ class ImprovedFlaskEventListener:
               time.sleep(5)  # Wait before retry
       
     def _broadcast_sse_event(self, event_data):
-        """Broadcast event to SSE clients"""
-        try:
-            # Add to a global queue that SSE endpoint can read from
-            if hasattr(app, 'sse_queue'):
-                app.sse_queue.put_nowait(event_data)
-        except Exception as e:
-            print(f"SSE broadcast error: {e}")
+      try:
+          if hasattr(app, 'sse_queue'):
+              app.sse_queue.put_nowait({
+                  'type': 'search_update',
+                  'data': event_data
+              })
+      except Exception as e:
+          print(f"SSE broadcast error: {e}")
     
     def _handle_flask_event(self, event_data):
+      """
+      Process Flask app events with robust error handling and proper data conversion
+      """
       try:
-          # Convert string values back to their original types
+          # Debug: log raw incoming data
+          print(f"📨 Raw event received: {event_data}")
+          
+          # Handle both string values and already converted values
           processed_data = {}
           for key, value in event_data.items():
+              # If value is already the correct type (from JSON parsing), use it directly
+              if not isinstance(value, str):
+                  processed_data[key] = value
+                  continue
+                  
+              # Convert string values back to their original types
               if value == "true":
                   processed_data[key] = True
               elif value == "false":
@@ -339,89 +319,203 @@ class ImprovedFlaskEventListener:
                   processed_data[key] = int(value)
               elif value.replace('.', '', 1).isdigit() and value.count('.') < 2:
                   processed_data[key] = float(value)
-              elif value.startswith('[') and value.endswith(']'):
+              elif (value.startswith('[') and value.endswith(']')) or (value.startswith('{') and value.endswith('}')):
                   try:
                       processed_data[key] = json.loads(value)
-                  except:
-                      processed_data[key] = value
-              elif value.startswith('{') and value.endswith('}'):
-                  try:
-                      processed_data[key] = json.loads(value)
-                  except:
-                      processed_data[key] = value
+                  except json.JSONDecodeError:
+                      processed_data[key] = value  # Keep as string if JSON parsing fails
               else:
                   processed_data[key] = value
           
-          # Now process with the converted data
-          event_type = processed_data.get('event')
-          search_id = processed_data.get('search_id')
-          timestamp = processed_data.get('timestamp', now_iso())
+          # Debug: log processed data
+          print(f"🔧 Processed event: {processed_data}")
           
+          # Extract essential fields with defaults
+          event_type = processed_data.get('event')
+          search_id = processed_data.get('search_id', f'unknown_{int(time.time())}')
+          timestamp = processed_data.get('timestamp', now_iso())
+          query = processed_data.get('query', 'Unknown query')
+          
+          if not event_type:
+              print("⚠️ Event missing 'event' type field")
+              return
+              
           with STATE_LOCK:
               if event_type == 'search_start':
                   search_logs.append({
                       'search_id': search_id,
                       'timestamp': timestamp,
                       'stage': 'Query Received',
-                      'query': processed_data.get('query', ''),  # ✅ FIXED
-                      'details': f"Real search from Flask app: '{processed_data.get('query', '')}'",  # ✅ FIXED
+                      'query': query,
+                      'details': f"Real search from Flask app: '{query}'",
                       'status': 'processing',
                       'source': 'flask_app',
-                      'user_ip': processed_data.get('ip_address', 'Unknown')  # ✅ FIXED
+                      'user_ip': processed_data.get('ip_address', 'Unknown')
                   })
+                  print(f"✅ Logged search_start: {search_id}")
                   
               elif event_type == 'search_stage':
-                  # Map Flask stages to dashboard display
-                  stage_mapping = {
-                      'web_search': 'Web Crawling',
-                      'academic_search': 'Elasticsearch Search', 
-                      'vector_search': 'Vector Search',
-                      'ai_processing': 'AI Analysis',
-                      'passage_search': 'Content Extraction'
-                  }
-                  
-                  stage = processed_data.get('stage', 'Unknown')  # ✅ FIXED
-                  display_stage = stage_mapping.get(stage, stage.replace('_', ' ').title())
-                  status = processed_data.get('status', 'processing')  # ✅ FIXED
-                  query = processed_data.get('query', 'Unknown query')
-                  
-                  details = processed_data.get('details', f"{display_stage} in progress...")  # ✅ FIXED
-                  if 'results_count' in processed_data:  # ✅ FIXED
-                      details += f" ({processed_data['results_count']} results)"  # ✅ FIXED
-                  if 'search_time' in processed_data:  # ✅ FIXED
-                      details += f" in {processed_data['search_time']}s"  # ✅ FIXED
-
-                  if stage == 'ai_processing':
-                    details = f"Processing query: '{query}' - {details}"
-
-                  search_logs.append({
-                      'search_id': search_id,
-                      'timestamp': timestamp,
-                      'stage': display_stage,
-                      'query': query,
-                      'details': details,
-                      'status': status,
-                      'source': 'flask_app',
-                      'metrics': {
-                          'results': processed_data.get('results_count', 0),  # ✅ FIXED
-                          'time': processed_data.get('search_time', 0)  # ✅ FIXED
-                      }
-                  })
-                  
-                  # If it's AI processing, also add to AI logs
-                  if stage == 'ai_processing':
-                      ai_processing_logs.append({
+                  # Special handling for web crawling events with crawler_name
+                  if processed_data.get('stage') == 'web_crawling' and 'crawler_name' in processed_data:
+                      crawler_name = processed_data.get('crawler_name', 'Unknown')
+                      
+                      # Add to search logs
+                      search_logs.append({
                           'search_id': search_id,
                           'timestamp': timestamp,
-                          'stage': 'AI Answer Generation',
+                          'stage': f'Web Crawling - {crawler_name}',
+                          'query': query,
+                          'details': processed_data.get('details', 'Crawling in progress...'),
+                          'status': processed_data.get('status', 'processing'),
+                          'source': 'flask_app',
+                          'metrics': {
+                              'results': processed_data.get('results_count', 0),
+                              'time': processed_data.get('search_time', 0),
+                              'success': processed_data.get('success', False)
+                          }
+                      })
+                      
+                      # Add to crawler stats
+                      if crawler_name != 'Unknown':
+                          crawler_stats[crawler_name].append({
+                              'timestamp': timestamp,
+                              'query': query,
+                              'results': processed_data.get('results_count', 0),
+                              'time': processed_data.get('search_time', 0.0),
+                              'success': processed_data.get('success', False),
+                              'search_id': search_id
+                          })
+                      print(f"✅ Logged web_crawling: {crawler_name} for {search_id}")
+                      
+                  else:
+                      # Map Flask stages to dashboard display
+                      stage_mapping = {
+                          'web_search': 'Web Crawling',
+                          'academic_search': 'Elasticsearch Search', 
+                          'vector_search': 'Vector Search',
+                          'ai_processing': 'AI Analysis',
+                          'passage_search': 'Content Extraction'
+                      }
+                      
+                      stage = processed_data.get('stage', 'unknown')
+                      display_stage = stage_mapping.get(stage, stage.replace('_', ' ').title())
+                      status = processed_data.get('status', 'processing')
+                      
+                      # Build details string
+                      details_parts = []
+                      if processed_data.get('details'):
+                          details_parts.append(processed_data['details'])
+                      
+                      # Add metrics to details if available
+                      if 'results_count' in processed_data:
+                          details_parts.append(f"{processed_data['results_count']} results")
+                      if 'search_time' in processed_data:
+                          details_parts.append(f"{processed_data['search_time']}s")
+                      
+                      details = " | ".join(details_parts) if details_parts else f"{display_stage} in progress..."
+                      
+                      # For AI processing, include query prominently
+                      if stage == 'ai_processing':
+                          details = f"Processing: '{query}' - {details}"
+                      
+                      # Create log entry
+                      log_entry = {
+                          'search_id': search_id,
+                          'timestamp': timestamp,
+                          'stage': display_stage,
                           'query': query,
                           'details': details,
                           'status': status,
-                          'metrics': processed_data.get('metrics', {})  # ✅ FIXED
-                      })
+                          'source': 'flask_app',
+                          'metrics': {
+                              'results': processed_data.get('results_count', 0),
+                              'time': processed_data.get('search_time', 0)
+                          }
+                      }
+                      
+                      search_logs.append(log_entry)
+                      
+                      # Also add to AI logs for AI processing stages
+                      if stage == 'ai_processing':
+                          ai_log_entry = {
+                              'search_id': search_id,
+                              'timestamp': timestamp,
+                              'stage': 'AI Answer Generation',
+                              'query': query,
+                              'details': details,
+                              'status': status,
+                              'metrics': processed_data.get('metrics', {})
+                          }
+                          ai_processing_logs.append(ai_log_entry)
+                          print(f"✅ Logged AI processing: {search_id}")
+                      
+                      print(f"✅ Logged search_stage: {stage} for {search_id}")
+                      
+              elif event_type == 'ai_step':
+                  # Special handling for AI processing steps
+                  search_logs.append({
+                      'search_id': search_id,
+                      'timestamp': timestamp,
+                      'stage': f"AI: {processed_data.get('step', 'Unknown')}",
+                      'query': query,
+                      'details': processed_data.get('details', 'AI processing step'),
+                      'status': processed_data.get('status', 'processing'),
+                      'source': 'flask_app',
+                      'ai_specific': True,
+                      'metrics': processed_data.get('metrics', {})
+                  })
+                  
+                  # Also add to AI processing logs with more detail
+                  ai_processing_logs.append({
+                      'search_id': search_id,
+                      'timestamp': timestamp,
+                      'stage': processed_data.get('step', 'Unknown Step'),
+                      'query': query,
+                      'details': processed_data.get('details', ''),
+                      'status': processed_data.get('status', 'processing'),
+                      'metrics': processed_data.get('metrics', {}),
+                      'context_length': processed_data.get('context_length', 0),
+                      'source_count': processed_data.get('source_count', 0)
+                  })
+                  print(f"✅ Logged ai_step: {processed_data.get('step', 'Unknown')} for {search_id}")
+                  
+              elif event_type == 'search_complete':
+                  search_logs.append({
+                      'search_id': search_id,
+                      'timestamp': timestamp,
+                      'stage': 'Search Complete',
+                      'query': query,
+                      'details': f"Search completed in {processed_data.get('total_time', 0)}s with {processed_data.get('total_results', 0)} results",
+                      'status': 'completed',
+                      'source': 'flask_app',
+                      'metrics': {
+                          'total_time': processed_data.get('total_time', 0),
+                          'total_results': processed_data.get('total_results', 0)
+                      }
+                  })
+                  print(f"✅ Logged search_complete: {search_id}")
+                  
+              elif event_type == 'search_error':
+                  search_logs.append({
+                      'search_id': search_id,
+                      'timestamp': timestamp,
+                      'stage': 'Error',
+                      'query': query,
+                      'details': f"Error: {processed_data.get('error', 'Unknown error')}",
+                      'status': 'error',
+                      'source': 'flask_app'
+                  })
+                  print(f"❌ Logged search_error: {search_id}")
+                  
+              else:
+                  print(f"⚠️ Unknown event type: {event_type}")
+                  
       except Exception as e:
-          print(f"Error processing event data: {e}")
-          
+          print(f"❌ Error processing Flask event: {e}")
+          print(f"📋 Event data that caused error: {event_data}")
+          import traceback
+          traceback.print_exc()
+
 # Initialize Flask event listener
 flask_listener = None
 if flask_integration_enabled:
@@ -745,7 +839,6 @@ def api_overview():
     }
     return jsonify(overview)
 
-app.sse_queue = queue.Queue()
 # SSE endpoint for real-time updates
 @app.route('/events')
 def sse_stream():
@@ -782,15 +875,6 @@ def sse_stream():
         except GeneratorExit:
             print(f"SSE client disconnected: {client_id}")
     
-    return Response(
-        event_generator(),
-        mimetype="text/event-stream",
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Content-Type': 'text/event-stream',
-        }
-    )
     return Response(
         event_generator(),
         mimetype="text/event-stream",
@@ -1121,6 +1205,39 @@ PAGE_HTML = r'''
     .sim-query {
         border-left: 4px solid #007bff;
     }
+    .ai-step {
+      background: linear-gradient(90deg, #f8f9fa 0%, #e3f2fd 100%);
+      border-left: 4px solid #2196f3;
+    }
+
+    .ai-pipeline {
+      position: relative;
+      padding-left: 20px;
+    }
+
+    .ai-pipeline::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(to bottom, #2196f3, #64b5f6);
+    }
+
+    .ai-step-completed {
+      border-left-color: #4caf50;
+    }
+
+    .ai-step-processing {
+      border-left-color: #ff9800;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
   </style>
 </head>
 <body>
@@ -1180,9 +1297,28 @@ PAGE_HTML = r'''
     </div>
 
     <div id="aiTab" class="tab-content">
-      <div class="card">
-        <h3>🤖 AI Processing</h3>
-        <div id="aiLogs" style="margin-top:10px;max-height:500px;overflow:auto"></div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="card">
+          <h3>🧠 AI Processing Pipeline</h3>
+          <div id="aiProcessingSteps" style="margin-top:10px;max-height:400px;overflow:auto"></div>
+        </div>
+        <div class="card">
+          <h3>📊 AI Performance Metrics</h3>
+          <div id="aiMetrics" style="margin-top:10px;">
+            <div>Active Processes: <span id="activeAiProcesses">0</span></div>
+            <div>Avg Response Time: <span id="avgResponseTime">0.0s</span></div>
+            <div>Success Rate: <span id="aiSuccessRate">0%</span></div>
+            <div>Avg Confidence: <span id="avgConfidence">0%</span></div>
+          </div>
+          <div style="margin-top:15px;">
+            <h4>Source Analysis Breakdown</h4>
+            <div id="sourceBreakdown" style="font-size:13px;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:20px;">
+        <h3>🔍 Recent AI Queries & Context</h3>
+        <div id="aiQueryDetails" style="max-height:300px;overflow:auto"></div>
       </div>
     </div>
 
@@ -1358,36 +1494,229 @@ PAGE_HTML = r'''
 
   // Update the fetchAI function to show queries prominently
   async function fetchAI(){
-      try {
-        const res = await fetch('/api/ai_logs'); 
-        const data = await res.json();
-        const logs = data.ai_logs || [];
-        const area = document.getElementById('aiLogs');
-        if (!area) return;
+    try {
+      const res = await fetch('/api/ai_logs'); 
+      const data = await res.json();
+      const logs = data.ai_logs || [];
+      
+      // Process AI pipeline steps
+      const stepsArea = document.getElementById('aiProcessingSteps');
+      const queryDetailsArea = document.getElementById('aiQueryDetails');
+      const sourceBreakdownArea = document.getElementById('sourceBreakdown');
+      
+      if (stepsArea) {
+        stepsArea.innerHTML = '';
         
-        area.innerHTML = '';
-        for(let l of logs.slice(0,50)){
-          const div = document.createElement('div');
-          div.className = 'log-item';
-          const t = new Date(l.timestamp).toLocaleTimeString();
+        // Group logs by search_id to show pipelines
+        const searchGroups = {};
+        logs.forEach(log => {
+          const searchId = log.search_id;
+          if (!searchGroups[searchId]) {
+            searchGroups[searchId] = [];
+          }
+          searchGroups[searchId].push(log);
+        });
+        
+        // Show recent 3 search pipelines
+        Object.keys(searchGroups).slice(-3).forEach(searchId => {
+          const searchLogs = searchGroups[searchId].sort((a, b) => 
+            new Date(a.timestamp) - new Date(b.timestamp)
+          );
           
-          // Enhanced display with query prominently featured
-          div.innerHTML = `
-            <div style="display:flex;justify-content:space-between">
-              <strong>🧠 ${l.stage}</strong>
-              <small class="smallmono">${t}</small>
+          const pipelineDiv = document.createElement('div');
+          pipelineDiv.style.cssText = 'border:1px solid #e0e0e0;margin-bottom:15px;padding:12px;border-radius:6px;background:#fafafa;';
+          
+          const query = searchLogs[0]?.query || 'Unknown Query';
+          pipelineDiv.innerHTML = `
+            <div style="font-weight:bold;margin-bottom:8px;color:#1a73e8;">
+              🔍 "${query}" (${searchId.slice(-8)})
             </div>
-            <div style="margin:8px 0;padding:8px;background:#f0f8ff;border-radius:6px;border-left:4px solid #1a73e8">
-              <strong>🔍 Query:</strong> "${l.query || 'No query specified'}"
-            </div>
-            <div style="margin-top:6px;color:#555">${l.details}</div>
           `;
-          area.appendChild(div);
-        }
-      } catch(e) {
-        console.error('Error fetching AI logs:', e);
+          
+          searchLogs.forEach(log => {
+            const stepDiv = document.createElement('div');
+            const time = new Date(log.timestamp).toLocaleTimeString();
+            const status = log.status || 'unknown';
+            const statusIcon = status === 'completed' ? '✅' : status === 'processing' ? '⏳' : status === 'error' ? '❌' : '🔄';
+            
+            stepDiv.style.cssText = 'margin:4px 0;padding:6px;border-left:3px solid #007bff;background:white;font-size:12px;';
+            stepDiv.innerHTML = `
+              <div style="display:flex;justify-content:space-between;">
+                <span>${statusIcon} ${log.stage}</span>
+                <span style="color:#666;">${time}</span>
+              </div>
+              <div style="color:#555;margin-top:2px;">${log.details || 'Processing...'}</div>
+            `;
+            
+            pipelineDiv.appendChild(stepDiv);
+          });
+          
+          stepsArea.appendChild(pipelineDiv);
+        });
       }
-  }
+      
+      // Update AI metrics - FIXED: More accurate calculations
+      if (logs.length > 0) {
+        const last30Minutes = logs.filter(log => {
+          const logTime = new Date(log.timestamp);
+          const now = new Date();
+          return (now - logTime) < (30 * 60 * 1000); // Last 30 minutes
+        });
+        
+        const processingLogs = last30Minutes.filter(l => l.status === 'processing');
+        const completedLogs = last30Minutes.filter(l => 
+          l.status === 'completed' && (l.stage === 'AI Processing' || l.stage === 'ai_processing')
+        );
+        const errorLogs = last30Minutes.filter(l => l.status === 'error');
+        
+        // Active processes
+        document.getElementById('activeAiProcesses').textContent = processingLogs.length;
+        
+        // Success rate (completed vs errors)
+        const totalAttempts = completedLogs.length + errorLogs.length;
+        const successRate = totalAttempts > 0 ? (completedLogs.length / totalAttempts) * 100 : 0;
+        document.getElementById('aiSuccessRate').textContent = `${successRate.toFixed(1)}%`;
+        
+        // Average response time from total_processing_time field
+        if (completedLogs.length > 0) {
+          const avgTime = completedLogs.reduce((sum, log) => {
+            return sum + (log.total_processing_time || log.processing_time || log.metrics?.processing_time || 0);
+          }, 0) / completedLogs.length;
+          document.getElementById('avgResponseTime').textContent = `${avgTime.toFixed(2)}s`;
+        } else {
+          document.getElementById('avgResponseTime').textContent = '0.00s';
+        }
+        
+        // Average confidence from validation logs
+        const confidenceLogs = last30Minutes.filter(l => 
+          (l.stage === 'AI Response Validation' || l.stage === 'ai_response_validation') && 
+          l.status === 'completed' && 
+          (l.confidence_score || l.metrics?.confidence_score)
+        );
+        if (confidenceLogs.length > 0) {
+          const avgConfidence = confidenceLogs.reduce((sum, log) => {
+            const confidence = log.confidence_score || log.metrics?.confidence_score || 0;
+            return sum + (confidence > 1 ? confidence : confidence * 100); // Handle both 0-1 and 0-100 scales
+          }, 0) / confidenceLogs.length;
+          document.getElementById('avgConfidence').textContent = `${avgConfidence.toFixed(1)}%`;
+        } else {
+          document.getElementById('avgConfidence').textContent = 'N/A';
+        }
+      } else {
+        // No data available
+        document.getElementById('activeAiProcesses').textContent = '0';
+        document.getElementById('avgResponseTime').textContent = '0.00s';
+        document.getElementById('aiSuccessRate').textContent = '0%';
+        document.getElementById('avgConfidence').textContent = 'N/A';
+      }
+
+      // FIXED: Source breakdown with correct field matching
+      if (sourceBreakdownArea) {
+        const sourceAnalysis = logs.filter(l => 
+          l.stage === 'AI Source Analysis' || 
+          l.stage === 'ai_source_analysis' || 
+          l.stage.toLowerCase().includes('source')
+        );
+        if (sourceAnalysis.length > 0) {
+          const latest = sourceAnalysis[sourceAnalysis.length - 1];
+          console.log('Latest source analysis log:', latest); // Debug log
+          
+          sourceBreakdownArea.innerHTML = `
+            <div>Web Sources: ${latest.web_count || latest.web_sources || 0}</div>
+            <div>Academic Sources: ${latest.academic_count || latest.academic_sources || 0}</div>
+            <div>Vector Sources: ${latest.vector_count || latest.vector_sources || 0}</div>
+            <div>Total Sources: ${latest.total_sources || latest.selected_sources || 0}</div>
+            <div>Avg Relevance: ${latest.avg_relevance || (latest.metrics && latest.metrics.avg_relevance) || 'N/A'}</div>
+            <div>Context Length: ${latest.context_length || (latest.metrics && latest.metrics.context_length) || 'N/A'}</div>
+          `;
+        } else {
+          sourceBreakdownArea.innerHTML = '<div class="smallmono">No source analysis data yet</div>';
+        }
+      }
+      
+      // FIXED: Recent AI queries with context details
+      if (queryDetailsArea) {
+        const queryLogs = logs.filter(l => l.query && l.query.trim() !== '');
+        
+        if (queryLogs.length > 0) {
+          queryDetailsArea.innerHTML = '';
+          
+          // Group by search_id and show recent 5
+          const queryGroups = {};
+          queryLogs.forEach(log => {
+            if (!queryGroups[log.search_id]) {
+              queryGroups[log.search_id] = {
+                query: log.query,
+                search_id: log.search_id,
+                timestamp: log.timestamp,
+                stages: []
+              };
+            }
+            queryGroups[log.search_id].stages.push(log);
+          });
+          
+          Object.values(queryGroups).slice(-5).reverse().forEach(group => {
+            const contextDiv = document.createElement('div');
+            contextDiv.style.cssText = 'margin-bottom:15px;padding:12px;border:1px solid #e0e0e0;border-radius:6px;background:#fafafa;';
+            
+            const time = new Date(group.timestamp).toLocaleTimeString();
+            const completedStages = group.stages.filter(s => s.status === 'completed').length;
+            const totalStages = group.stages.length;
+            
+            // Get processing details from stages
+            const sourceStage = group.stages.find(s => s.stage.toLowerCase().includes('source'));
+            const contextStage = group.stages.find(s => s.stage.toLowerCase().includes('context'));
+            const processingStage = group.stages.find(s => s.stage.toLowerCase().includes('processing'));
+            
+            contextDiv.innerHTML = `
+              <div style="font-weight:bold;color:#1a73e8;margin-bottom:8px;">
+                "${group.query}" (${time})
+              </div>
+              <div style="font-size:12px;color:#666;margin-bottom:6px;">
+                Search ID: ${group.search_id.slice(-8)} | Stages: ${completedStages}/${totalStages} completed
+              </div>
+              ${sourceStage ? `
+                <div style="font-size:11px;margin-bottom:4px;color:#555;">
+                  Sources: ${sourceStage.total_sources || sourceStage.web_count + sourceStage.academic_count + sourceStage.vector_count || 'N/A'}
+                  | Context: ${contextStage?.context_length || 'N/A'} chars
+                  | Time: ${processingStage?.total_processing_time || 'N/A'}s
+                </div>
+              ` : ''}
+              <div style="font-size:11px;">
+                ${group.stages.map(stage => `
+                  <span style="padding:2px 6px;margin:1px;border-radius:3px;background:${
+                    stage.status === 'completed' ? '#d4edda' : 
+                    stage.status === 'processing' ? '#fff3cd' : '#f8d7da'
+                  };">
+                    ${stage.stage.replace(/^ai_/i, '').replace(/_/g, ' ')}
+                  </span>
+                `).join('')}
+              </div>
+            `;
+            
+            queryDetailsArea.appendChild(contextDiv);
+          });
+        } else {
+          queryDetailsArea.innerHTML = '<div class="smallmono">No AI queries processed yet</div>';
+        }
+      }
+      
+    } catch(e) {
+      console.error('Error fetching AI logs:', e);
+      
+      // Show error state in UI
+      const errorMsg = '<div class="smallmono" style="color:#dc3545;">Error loading AI data</div>';
+      if (document.getElementById('aiProcessingSteps')) {
+        document.getElementById('aiProcessingSteps').innerHTML = errorMsg;
+      }
+      if (document.getElementById('sourceBreakdown')) {
+        document.getElementById('sourceBreakdown').innerHTML = errorMsg;
+      }
+      if (document.getElementById('aiQueryDetails')) {
+        document.getElementById('aiQueryDetails').innerHTML = errorMsg;
+      }
+    }
+}
 
   // Add this function to extract and display recent AI queries
   function updateRecentAIQueries(logs) {
@@ -1456,47 +1785,138 @@ PAGE_HTML = r'''
       const table = document.getElementById('crawlerTable');
       
       if(!names.length){
-        if (successChart) successChart.innerHTML = '<div class="smallmono">No crawler data</div>';
-        if (timeChart) timeChart.innerHTML = '';
-        if (table) table.innerHTML = '';
+        if (successChart) successChart.innerHTML = '<div class="smallmono">No crawler data available</div>';
+        if (timeChart) timeChart.innerHTML = '<div class="smallmono">Waiting for web searches...</div>';
+        if (table) table.innerHTML = '<div class="smallmono">Run some searches to see crawler performance</div>';
         return;
       }
       
-      const success = names.map(n => {
+      // Calculate success rates
+      const successData = names.map(n => {
         const arr = cs[n];
-        const succ = arr.filter(x=>x.success).length;
-        return arr.length ? Math.round((succ/arr.length)*100) : 0;
+        const successful = arr.filter(x => x.success).length;
+        return arr.length ? Math.round((successful/arr.length)*100) : 0;
       });
       
-      if (successChart && typeof Plotly !== 'undefined') {
-        Plotly.newPlot('crawlerSuccessChart', [{x:names,y:success,type:'bar'}], {margin:{t:30}});
-      }
-      
+      // Calculate average response times
       const avgTimes = names.map(n => {
-        const arr = cs[n]; if(!arr.length) return 0;
-        const avg = arr.reduce((s,x)=>s + (x.time||0),0) / arr.length; return Math.round(avg*100)/100;
+        const arr = cs[n]; 
+        if(!arr.length) return 0;
+        const totalTime = arr.reduce((sum, x) => sum + (x.time || 0), 0);
+        return Math.round((totalTime / arr.length) * 1000) / 1000; // Round to 3 decimals
       });
       
-      if (timeChart && typeof Plotly !== 'undefined') {
-        Plotly.newPlot('crawlerTimeChart', [{x:names,y:avgTimes,type:'bar'}], {margin:{t:30}});
+      // Create success rate chart
+      if (successChart && typeof Plotly !== 'undefined') {
+        const successTrace = {
+          x: names,
+          y: successData,
+          type: 'bar',
+          marker: {
+            color: successData.map(rate => 
+              rate >= 80 ? '#28a745' : rate >= 60 ? '#ffc107' : '#dc3545'
+            )
+          },
+          text: successData.map(rate => `${rate}%`),
+          textposition: 'auto'
+        };
+        
+        Plotly.newPlot('crawlerSuccessChart', [successTrace], {
+          title: 'Crawler Success Rates',
+          margin: {t: 40, b: 60, l: 40, r: 40},
+          yaxis: {title: 'Success Rate (%)'},
+          xaxis: {title: 'Crawler'}
+        });
       }
       
-      let html = '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:#fafafa"><th style="padding:8px">Crawler</th><th>Searches</th><th>Total Results</th><th>Avg Results</th><th>Min Time</th><th>Max Time</th><th>Last</th></tr></thead><tbody>';
-      for(let n of names){
-        const arr = cs[n]; if(!arr.length) continue;
-        const totalResults = arr.reduce((s,x)=>s + (x.results||0),0);
-        const avgResults = (totalResults/arr.length).toFixed(1);
-        const maxRes = Math.max(...arr.map(x=>x.results));
-        const times = arr.map(x=>x.time); const minT = (Math.min(...times)||0).toFixed(2); const maxT = (Math.max(...times)||0).toFixed(2);
-        const last = new Date(arr[arr.length-1].timestamp).toLocaleTimeString();
-        html += `<tr><td style="padding:8px">${n}</td><td>${arr.length}</td><td>${totalResults}</td><td>${avgResults}</td><td>${minT}s</td><td>${maxT}s</td><td>${last}</td></tr>`;
+      // Create response time chart
+      if (timeChart && typeof Plotly !== 'undefined') {
+        const timeTrace = {
+          x: names,
+          y: avgTimes,
+          type: 'bar',
+          marker: {
+            color: avgTimes.map(time => 
+              time <= 1.0 ? '#28a745' : time <= 2.0 ? '#ffc107' : '#dc3545'
+            )
+          },
+          text: avgTimes.map(time => `${time}s`),
+          textposition: 'auto'
+        };
+        
+        Plotly.newPlot('crawlerTimeChart', [timeTrace], {
+          title: 'Average Response Times',
+          margin: {t: 40, b: 60, l: 40, r: 40},
+          yaxis: {title: 'Response Time (seconds)'},
+          xaxis: {title: 'Crawler'}
+        });
       }
+      
+      // Create detailed crawler table
+      let html = `
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <thead>
+            <tr style="background:#f8f9fa;border-bottom:2px solid #dee2e6;">
+              <th style="padding:12px 8px;text-align:left;border-right:1px solid #dee2e6;">Crawler</th>
+              <th style="padding:12px 8px;text-align:center;border-right:1px solid #dee2e6;">Total Searches</th>
+              <th style="padding:12px 8px;text-align:center;border-right:1px solid #dee2e6;">Success Rate</th>
+              <th style="padding:12px 8px;text-align:center;border-right:1px solid #dee2e6;">Avg Time</th>
+              <th style="padding:12px 8px;text-align:center;border-right:1px solid #dee2e6;">Total Results</th>
+              <th style="padding:12px 8px;text-align:center;border-right:1px solid #dee2e6;">Best Time</th>
+              <th style="padding:12px 8px;text-align:center;">Last Used</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      
+      for(let crawler of names){
+        const stats = cs[crawler];
+        if(!stats.length) continue;
+        
+        const totalSearches = stats.length;
+        const successfulSearches = stats.filter(s => s.success).length;
+        const successRate = Math.round((successfulSearches / totalSearches) * 100);
+        const avgTime = (stats.reduce((sum, s) => sum + (s.time || 0), 0) / totalSearches).toFixed(3);
+        const totalResults = stats.reduce((sum, s) => sum + (s.results || 0), 0);
+        const bestTime = Math.min(...stats.map(s => s.time || 999)).toFixed(3);
+        const lastUsed = new Date(stats[stats.length - 1].timestamp).toLocaleTimeString();
+        
+        const successColor = successRate >= 80 ? '#28a745' : successRate >= 60 ? '#ffc107' : '#dc3545';
+        const timeColor = avgTime <= 1.0 ? '#28a745' : avgTime <= 2.0 ? '#ffc107' : '#dc3545';
+        
+        html += `
+          <tr style="border-bottom:1px solid #dee2e6;">
+            <td style="padding:10px 8px;font-weight:500;border-right:1px solid #dee2e6;">${crawler}</td>
+            <td style="padding:10px 8px;text-align:center;border-right:1px solid #dee2e6;">${totalSearches}</td>
+            <td style="padding:10px 8px;text-align:center;border-right:1px solid #dee2e6;color:${successColor};font-weight:bold;">${successRate}%</td>
+            <td style="padding:10px 8px;text-align:center;border-right:1px solid #dee2e6;color:${timeColor};font-weight:bold;">${avgTime}s</td>
+            <td style="padding:10px 8px;text-align:center;border-right:1px solid #dee2e6;">${totalResults}</td>
+            <td style="padding:10px 8px;text-align:center;border-right:1px solid #dee2e6;">${bestTime}s</td>
+            <td style="padding:10px 8px;text-align:center;">${lastUsed}</td>
+          </tr>
+        `;
+      }
+      
       html += '</tbody></table>';
+      
       if (table) table.innerHTML = html;
+      
     } catch(e) {
       console.error('Error fetching crawler data:', e);
+      
+      // Show error state
+      const errorMsg = '<div class="smallmono" style="color:#dc3545;">Error loading crawler data</div>';
+      if (document.getElementById('crawlerSuccessChart')) {
+        document.getElementById('crawlerSuccessChart').innerHTML = errorMsg;
+      }
+      if (document.getElementById('crawlerTimeChart')) {
+        document.getElementById('crawlerTimeChart').innerHTML = errorMsg;
+      }
+      if (document.getElementById('crawlerTable')) {
+        document.getElementById('crawlerTable').innerHTML = errorMsg;
+      }
     }
-  }
+}
 
   async function fetchSearchAnalytics(){
     try {
@@ -1558,7 +1978,6 @@ PAGE_HTML = r'''
     await fetchCrawler();
     await fetchSearchAnalytics();
     await fetchAlgorithmMetrics();        // Add this line
-    await fetchAlgorithmMetricsHistory(); // Add this line
 }
 
   function startPolling(){ 
@@ -1614,14 +2033,15 @@ function initEventStream() {
                 lastHeartbeat = Date.now();
                 return;
             }
-            
+            if (data.type === 'search_update') {
+              handleSearchUpdate(data.data);
+          } else if (data.event && data.search_id) {
+              // Direct event data
+              handleSearchUpdate(data);
+          }
             switch(data.type) {
                 case 'connection':
                     console.log('SSE connected with client ID:', data.client_id);
-                    break;
-                    
-                case 'search_update':
-                    handleSearchUpdate(data.data);
                     break;
                     
                 case 'error':
@@ -1691,6 +2111,9 @@ setInterval(() => {
     if (logData.stage === 'Search Complete' && logData.source === 'flask_app') {
       const metrics = logData.metrics || {};
       showNotification(`✅ Search completed in ${metrics.total_time || 0}s`, 'success');
+    }
+    if (logData.stage && logData.stage.includes('Web Crawling')) {
+        fetchCrawler();
     }
     
     // Update counters immediately

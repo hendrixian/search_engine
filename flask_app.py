@@ -363,15 +363,29 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
     Generate enhanced AI answer using advanced optimization features
     Returns separated AI answer and sources as requested
     """
+    processing_start_time = time.time()
+    
     dashboard_logger.log_stage(
         search_id, 
         "ai_processing", 
         "started",
         query=query,
-        details="Starting enhanced AI answer generation with optimization features"
+        details="Starting AI answer generation pipeline"
     )
     
     try:
+        # === STEP 1: SOURCE ANALYSIS ===
+        dashboard_logger.log_stage(
+            search_id, 
+            "ai_source_analysis", 
+            "processing",
+            query=query,
+            web_count=len(web_results),
+            academic_count=len(academic_papers),
+            vector_count=len(passages),
+            details=f"Analyzing {len(web_results)} web, {len(academic_papers)} academic, {len(passages)} vector sources"
+        )
+        
         # Prepare sources in the format expected by enhanced AI
         all_sources = []
         
@@ -408,8 +422,9 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
             }
             all_sources.append(source)
         
+        # Check if we have sources
         if not all_sources:
-            dashboard_logger.log_error(search_id, "ai_processing", "No sources available for AI processing")
+            dashboard_logger.log_error(search_id, "ai_source_analysis", "No sources available for AI processing")
             return {
                 'ai_answer': {
                     'content': "No sufficient sources available to generate a comprehensive answer.",
@@ -427,59 +442,164 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
                 }
             }
         
+        # Complete source analysis
         dashboard_logger.log_stage(
-            search_id, 
-            "ai_processing", 
-            "processing",
-            total_sources=len(all_sources),
-            web_sources=len(web_results),
-            academic_sources=len(academic_papers),
-            vector_sources=len(passages),
+            search_id,
+            "ai_source_analysis",
+            "completed",
             query=query,
-            details=f"Processing {len(all_sources)} total sources with enhanced AI"
+            total_sources=len(all_sources),
+            avg_relevance=round(sum(s.get('relevance_score', 0) for s in all_sources) / len(all_sources), 3),
+            details=f"Analyzed {len(all_sources)} total sources, avg relevance: {round(sum(s.get('relevance_score', 0) for s in all_sources) / len(all_sources), 3)}"
         )
+        
+        # === STEP 2: CONTEXT BUILDING ===
+        dashboard_logger.log_stage(
+            search_id,
+            "ai_context_building",
+            "processing",
+            query=query,
+            details="Building context from selected sources"
+        )
+        
+        # Sort sources by relevance for better context
+        all_sources.sort(key=lambda x: x.get('relevance_score',0), reverse=True)
         
         # Use enhanced AI if available, otherwise fall back to legacy
         if enhanced_available and call_mistral_enhanced:
-            # Use enhanced AI with all optimization features
-            enhanced_result = call_mistral_enhanced(query, "", all_sources, search_id)
+            # Enhanced AI handles its own context building
+            selected_sources = all_sources[:15]  # More sources for enhanced AI
+            context_length = sum(len(s.get('content', '')) for s in selected_sources)
             
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_context_building", 
+                "completed",
+                query=query,
+                selected_sources=len(selected_sources),
+                context_length=context_length,
+                details=f"Built context from top {len(selected_sources)} sources ({context_length} chars)"
+            )
+            
+            # === STEP 3: MODEL INFERENCE (Enhanced) ===
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_model_inference",
+                "processing",
+                query=query,
+                model_type="mistral_enhanced",
+                input_tokens=len(query.split()) + (context_length // 4),  # Rough token estimate
+                details="Processing with enhanced Mistral AI (validation + multi-perspective)"
+            )
+            
+            # Use enhanced AI with all optimization features
+            enhanced_result = call_mistral_enhanced(query, "", selected_sources, search_id)
+            
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_model_inference",
+                "completed",
+                query=query,
+                model_type="mistral_enhanced",
+                response_tokens=len(enhanced_result['ai_answer'].get('content', '').split()),
+                processing_time=round(time.time() - processing_start_time, 3),
+                details=f"Enhanced AI completed ({len(enhanced_result['ai_answer'].get('content', '').split())} tokens generated)"
+            )
+            
+            # === STEP 4: RESPONSE VALIDATION ===
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_response_validation",
+                "completed",
+                query=query,
+                confidence_score=enhanced_result['ai_answer'].get('confidence_score', 0.0),
+                validation_passed=enhanced_result['ai_answer'].get('validation_passed', False),
+                perspectives_considered=enhanced_result['ai_answer'].get('perspectives_considered', 1),
+                refinement_iterations=enhanced_result['ai_answer'].get('refinement_iterations', 0),
+                details=f"Validation: {'PASSED' if enhanced_result['ai_answer'].get('validation_passed') else 'FAILED'}, Confidence: {enhanced_result['ai_answer'].get('confidence_score', 0):.1%}"
+            )
+            
+            # Final completion log
             dashboard_logger.log_stage(
                 search_id, 
                 "ai_processing", 
                 "completed",
+                query=query,
                 enhanced_features_used=True,
+                total_processing_time=round(time.time() - processing_start_time, 3),
                 confidence_score=enhanced_result['ai_answer'].get('confidence_score', 0.0),
                 sources_selected=enhanced_result['processing_info'].get('sources_selected', 0),
-                query=query,
-                details=f"Enhanced AI processing completed with {enhanced_result['ai_answer'].get('perspectives_considered', 1)} perspectives"
+                details=f"Enhanced AI pipeline completed in {round(time.time() - processing_start_time, 3)}s with {enhanced_result['ai_answer'].get('perspectives_considered', 1)} perspectives"
             )
             
             return enhanced_result
         
         else:
-            # Fall back to legacy mode with separated response format
+            # === LEGACY MODE ===
             dashboard_logger.log_stage(
                 search_id, 
                 "ai_processing", 
                 "fallback",
-                query,
-                details="Using legacy AI mode (enhanced features not available)"
+                query=query,
+                details="Enhanced AI unavailable, using legacy mode"
             )
             
             # Prepare context for legacy AI
+            selected_sources = all_sources[:10]  # Limit for legacy mode
             context_parts = []
-            for i, source in enumerate(all_sources[:10]):  # Limit for legacy mode
+            for i, source in enumerate(selected_sources):
                 context_parts.append(f"{source['source_type'].title()} Source {i+1}: {source['title']}\n{source['content'][:500]}...")
             
             full_context = "\n\n".join(context_parts)
+            context_length = len(full_context)
+            
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_context_building",
+                "completed", 
+                query=query,
+                selected_sources=len(selected_sources),
+                context_length=context_length,
+                details=f"Legacy context built from {len(selected_sources)} sources ({context_length} chars)"
+            )
+            
+            # === STEP 3: MODEL INFERENCE (Legacy) ===
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_model_inference",
+                "processing",
+                query=query,
+                model_type="mistral_legacy",
+                input_tokens=len(query.split()) + len(full_context.split()),
+                details="Processing with legacy Mistral AI model"
+            )
             
             # Call legacy Mistral API
             ai_response = call_mistral(query, full_context)
             
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_model_inference",
+                "completed",
+                query=query,
+                model_type="mistral_legacy",
+                response_tokens=len(ai_response.split()),
+                processing_time=round(time.time() - processing_start_time, 3),
+                details=f"Legacy AI completed ({len(ai_response.split())} words generated)"
+            )
+            
+            # === STEP 4: RESPONSE FORMATTING ===
+            dashboard_logger.log_stage(
+                search_id,
+                "ai_response_validation",
+                "processing",
+                query=query,
+                details="Formatting legacy response (no validation available)"
+            )
+            
             # Format legacy response in new separated format
             formatted_sources = []
-            for source in all_sources[:10]:
+            for source in selected_sources:
                 formatted_source = {
                     'title': source['title'],
                     'url': source['url'],
@@ -490,21 +610,34 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
                 formatted_sources.append(formatted_source)
             
             dashboard_logger.log_stage(
+                search_id,
+                "ai_response_validation",
+                "completed",
+                query=query,
+                response_length=len(ai_response.split()),
+                confidence_score=0.7,  # Default for legacy
+                validation_passed=True,  # Assume passed for legacy
+                details=f"Legacy response formatted ({len(ai_response.split())} words, default confidence 70%)"
+            )
+            
+            # Final completion log
+            dashboard_logger.log_stage(
                 search_id, 
                 "ai_processing", 
                 "completed",
+                query=query,
                 enhanced_features_used=False,
+                total_processing_time=round(time.time() - processing_start_time, 3),
                 word_count=len(ai_response.split()),
                 sources_used=len(formatted_sources),
-                query=query,
-                details=f"Legacy AI processing completed with {len(ai_response.split())} words"
+                details=f"Legacy AI pipeline completed in {round(time.time() - processing_start_time, 3)}s"
             )
             
             return {
                 'ai_answer': {
                     'content': ai_response,
                     'confidence_score': 0.7,  # Default confidence for legacy mode
-                    'processing_time': 0.0,
+                    'processing_time': round(time.time() - processing_start_time, 3),
                     'validation_passed': True,
                     'refinement_iterations': 0,
                     'perspectives_considered': 1
@@ -524,12 +657,12 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
             }
         
     except Exception as e:
-        dashboard_logger.log_error(search_id, "ai_processing", str(e))
+        dashboard_logger.log_error(search_id, "ai_processing", f"AI pipeline failed: {str(e)}")
         return {
             'ai_answer': {
-                'content': f"Error generating enhanced AI answer: {str(e)}",
+                'content': f"AI processing encountered an error: {str(e)}",
                 'confidence_score': 0.0,
-                'processing_time': 0.0,
+                'processing_time': round(time.time() - processing_start_time, 3),
                 'validation_passed': False,
                 'refinement_iterations': 0,
                 'perspectives_considered': 0
@@ -538,7 +671,8 @@ def generate_comprehensive_answer(query, web_results, academic_papers, passages,
             'processing_info': {
                 'total_sources_available': len(all_sources) if 'all_sources' in locals() else 0,
                 'sources_selected': 0,
-                'error': str(e)
+                'error': str(e),
+                'processing_time': round(time.time() - processing_start_time, 3)
             }
         }
 
@@ -649,6 +783,49 @@ def search():
         if web_crawler:
             try:
                 web_search_start = time.time()
+                # Log individual crawler attempts
+                crawler_sites = ['GeeksforGeeks', 'MathWorld', 'Engineering.com', 'Wikipedia', 'StackOverflow']
+                individual_results = {}
+                
+                for site in crawler_sites:
+                    site_start = time.time()
+                    dashboard_logger.log_stage(
+                        search_id,
+                        "web_crawling",
+                        "processing",
+                        query=query,
+                        crawler_name=site,
+                        details=f"Searching {site} for relevant content"
+                    )
+                    
+                    try:
+                        # Get results for this specific site (if your crawler supports per-site results)
+                        site_results = web_crawler.search_specific_site(site, query) if hasattr(web_crawler, 'search_specific_site') else []
+                        site_time = time.time() - site_start
+                        
+                        individual_results[site] = {
+                            'results': len(site_results),
+                            'time': site_time,
+                            'success': len(site_results) > 0
+                        }
+                        
+                        dashboard_logger.log_stage(
+                            search_id,
+                            "web_crawling", 
+                            "completed" if len(site_results) > 0 else "no_results",
+                            query=query,
+                            crawler_name=site,
+                            results_count=len(site_results),
+                            search_time=round(site_time, 3),
+                            success=len(site_results) > 0,
+                            details=f"{site}: Found {len(site_results)} results in {site_time:.2f}s"
+                        )
+                        
+                    except Exception as e:
+                        dashboard_logger.log_error(search_id, "web_crawling", f"{site} failed: {str(e)}")
+                        individual_results[site] = {'results': 0, 'time': time.time() - site_start, 'success': False}
+                
+
                 web_results = web_crawler.search_web(query)
                 web_search_time = time.time() - web_search_start
                 
